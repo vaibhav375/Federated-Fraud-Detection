@@ -5,15 +5,29 @@ at the seeded initial model on every node, which is what the plain loop's
 `aggregate` guarantees too. Local training is the plain loop's `local_fit`.
 """
 import copy
+import dataclasses
 import functools
 import json
+import math
+import os
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
 import torch
-from flwr.client import NumPyClient
+from flwr.client import ClientApp, NumPyClient
+from flwr.client.mod import secaggplus_mod
+from flwr.common import ndarrays_to_parameters, parameters_to_ndarrays
+from flwr.server import LegacyContext, ServerApp, ServerConfig
+from flwr.server.strategy import FedAvg
+from flwr.server.workflow import DefaultWorkflow, SecAggPlusWorkflow
+from flwr.simulation import run_simulation
 from opacus.accountants import RDPAccountant
+
+QUANTIZATION_RANGE = 2**22
+MODULUS_RANGE = 2**32
+ROOT = Path(__file__).resolve().parents[2]
 
 from experiments.run_ibm_comparison import (DEFAULT_CONFIG, account_dp_plan, local_fit,
                                             model_builder, parse_args)
@@ -117,3 +131,97 @@ class BankClient(NumPyClient):
             out.mkdir(parents=True, exist_ok=True)
             np.savez(out / f"round{rnd}_client{self.cid}.npz", *arrays)
         return arrays, len(data["train"]), {}
+
+
+# ---------------------------------------------------------------- server
+
+def client_sizes(settings: FlowerSettings) -> dict:
+    return {c: len(client_data(settings, c)["train"]) for c in range(settings.n_clients)}
+
+
+def secagg_error_bound(n_clients: int, clipping_range: float, quantization_range: int = QUANTIZATION_RANGE) -> float:
+    # One quantum (2c/Q) per client; max_weight = largest count keeps the summed weight ratio >= 1.
+    return n_clients * 2 * clipping_range / quantization_range + 1e-6
+
+
+def secagg_threshold(n_clients: int) -> int:
+    return min(math.ceil(0.7 * n_clients), n_clients - 1)  # Flower requires threshold < num_shares
+
+
+class RecordingFedAvg(FedAvg):
+    """FedAvg over all clients that saves each round's aggregate and refuses partial rounds."""
+
+    def __init__(self, settings: FlowerSettings, rounds: int):
+        n = settings.n_clients
+        init = trainable_arrays(initial_model(build_model_for(settings), settings.seed))
+        super().__init__(fraction_fit=1.0, fraction_evaluate=0.0, min_fit_clients=n,
+                         min_available_clients=n, accept_failures=False,
+                         initial_parameters=ndarrays_to_parameters(init),
+                         on_fit_config_fn=lambda r: {"server_round": r})
+        self.out = Path(settings.out_dir) / "global"
+
+    def aggregate_fit(self, server_round, results, failures):
+        if failures:
+            raise RuntimeError(f"round {server_round}: {len(failures)} client(s) failed; refusing a partial aggregate")
+        params, metrics = super().aggregate_fit(server_round, results, failures)
+        self.out.mkdir(parents=True, exist_ok=True)
+        np.savez(self.out / f"round{server_round}.npz", *parameters_to_ndarrays(params))
+        return params, metrics
+
+
+def make_server_app(settings: FlowerSettings, rounds: int) -> ServerApp:
+    app = ServerApp()
+
+    @app.main()
+    def main(grid, context):
+        strategy = RecordingFedAvg(settings, rounds)
+        context = LegacyContext(context=context, config=ServerConfig(num_rounds=rounds), strategy=strategy)
+        if settings.secagg:
+            n = settings.n_clients
+            workflow = DefaultWorkflow(fit_workflow=SecAggPlusWorkflow(
+                num_shares=n, reconstruction_threshold=secagg_threshold(n),
+                max_weight=float(max(client_sizes(settings).values())),
+                clipping_range=settings.clipping_range, quantization_range=QUANTIZATION_RANGE,
+                modulus_range=MODULUS_RANGE))
+        else:
+            workflow = DefaultWorkflow()
+        workflow(grid, context)
+
+    return app
+
+
+def make_client_app(settings: FlowerSettings) -> ClientApp:
+    def client_fn(context):
+        return BankClient(settings, int(context.node_config["partition-id"])).to_client()
+    return ClientApp(client_fn=client_fn, mods=[secaggplus_mod] if settings.secagg else [])
+
+
+def run(settings: FlowerSettings, rounds: int) -> None:
+    out = Path(settings.out_dir).resolve()
+    settings = dataclasses.replace(settings, out_dir=str(out), data_path=str(Path(settings.data_path).resolve()))
+    for sub in ("global", "locals"):
+        shutil.rmtree(out / sub, ignore_errors=True)
+    # Ray workers import this module by reference; they inherit the driver's environment.
+    os.environ["PYTHONPATH"] = os.pathsep.join(filter(None, [str(ROOT), os.environ.get("PYTHONPATH")]))
+    run_simulation(make_server_app(settings, rounds), make_client_app(settings),
+                   num_supernodes=settings.n_clients,
+                   backend_config={"client_resources": {"num_cpus": 1},
+                                   "init_args": {"num_cpus": 2, "include_dashboard": False,
+                                                 "object_store_memory": 200 * 2**20}})
+    if not (out / "global" / f"round{rounds}.npz").exists():
+        raise RuntimeError(f"Flower run stopped before round {rounds}; see the log above")
+
+
+def aggregation_errors(out_dir, sizes: dict, rounds: int) -> list:
+    """Per round: max |SecAgg+ aggregate - plain weighted average of the dumped local models|."""
+    out, total = Path(out_dir), sum(sizes.values())
+    errors = []
+    for r in range(1, rounds + 1):
+        g = np.load(out / "global" / f"round{r}.npz")
+        locs = {c: np.load(out / "locals" / f"round{r}_client{c}.npz") for c in sizes}
+        err = 0.0
+        for k in g.files:
+            plain = sum(sizes[c] / total * locs[c][k].astype(np.float64) for c in sizes)
+            err = max(err, float(np.abs(g[k] - plain).max()))
+        errors.append(err)
+    return errors

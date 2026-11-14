@@ -10,7 +10,7 @@ RUN_ARGS = ["--local-epochs", "1", "--batch-size", "32", "--delta", "1e-3"]
 
 @pytest.fixture
 def tiny3(tmp_path):
-    build_dataset(write_raw(make_raw(), tmp_path), tmp_path / "data", n_clients=3)
+    build_dataset(write_raw(make_raw(n_banks=7), tmp_path), tmp_path / "data", n_clients=3)  # 7 banks: unequal clients
     return tmp_path
 
 
@@ -103,3 +103,47 @@ def test_client_dumps_locals_only_when_asked(tiny3):
     out, _, _ = BankClient(s, 2).fit(_initial_arrays(s), {"server_round": 1})
     saved = np.load(tiny3 / "run" / "locals" / "round1_client2.npz")
     assert all(np.array_equal(saved[f"arr_{i}"], x) for i, x in enumerate(out))
+
+
+# ---------------------------------------------------------------- server + simulation (Ray)
+
+def _simulate(tiny3, secagg, rounds=2):
+    from src.federated.flower_app import aggregation_errors, client_sizes, run
+    s = _settings(tiny3, secagg=secagg, dump_locals=True)
+    run(s, rounds)
+    return s, aggregation_errors(s.out_dir, client_sizes(s), rounds)
+
+
+def test_flower_fedavg_equals_plain_weighted_average(tiny3):
+    s, errors = _simulate(tiny3, secagg=False)
+    assert len(errors) == 2 and max(errors) <= 1e-5
+    assert all((tiny3 / "run" / "global" / f"round{r}.npz").exists() for r in (1, 2))
+
+
+def test_secagg_aggregate_within_quantization_bound(tiny3):
+    from src.federated.flower_app import secagg_error_bound
+    s, errors = _simulate(tiny3, secagg=True)
+    assert len(errors) == 2 and max(errors) <= secagg_error_bound(3, 16.0)
+    assert max(errors) > 0  # quantization noise proves the SecAgg+ path ran
+
+
+def test_tiny_clients_have_unequal_sizes(tiny3):
+    from src.federated.flower_app import client_sizes
+    assert len(set(client_sizes(_settings(tiny3)).values())) > 1
+
+
+def test_secagg_error_bound_for_ten_clients():
+    from src.federated.flower_app import secagg_error_bound
+    assert secagg_error_bound(10, 16.0) == pytest.approx(10 * 32 / 2**22 + 1e-6, rel=1e-9)  # 7.73e-5
+
+
+def test_secagg_threshold_is_below_shares():
+    from src.federated.flower_app import secagg_threshold
+    assert secagg_threshold(10) == 7 and secagg_threshold(3) == 2
+
+
+def test_server_refuses_to_aggregate_with_failures(tiny3):
+    from src.federated.flower_app import RecordingFedAvg
+    strategy = RecordingFedAvg(_settings(tiny3), rounds=1)
+    with pytest.raises(RuntimeError, match="1 client"):
+        strategy.aggregate_fit(1, [], [RuntimeError("boom")])
