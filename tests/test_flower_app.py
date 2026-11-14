@@ -2,16 +2,7 @@ import numpy as np
 import pytest
 import torch
 
-from helpers import make_raw, write_raw
-from src.data.ibm_aml import build_dataset
-
 RUN_ARGS = ["--local-epochs", "1", "--batch-size", "32", "--delta", "1e-3"]
-
-
-@pytest.fixture
-def tiny3(tmp_path):
-    build_dataset(write_raw(make_raw(n_banks=7), tmp_path), tmp_path / "data", n_clients=3)  # 7 banks: unequal clients
-    return tmp_path
 
 
 def _settings(tiny3, **kw):

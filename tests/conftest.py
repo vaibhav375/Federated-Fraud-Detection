@@ -22,3 +22,12 @@ def tiny_client(tmp_path):
 
     build_dataset(write_raw(make_raw(), tmp_path), tmp_path / "out", n_clients=2)
     return load_indexed_client(tmp_path / "out", 0)
+
+
+@pytest.fixture
+def tiny3(tmp_path):
+    """Three clients of unequal size (7 banks: 100/70/70 train examples)."""
+    from src.data.ibm_aml import build_dataset
+
+    build_dataset(write_raw(make_raw(n_banks=7), tmp_path), tmp_path / "data", n_clients=3)
+    return tmp_path
