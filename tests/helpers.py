@@ -41,3 +41,17 @@ def write_raw(df: pd.DataFrame, tmp_path: Path) -> Path:
         f.write(header + "\n")
         df.to_csv(f, header=False, index=False)
     return path
+
+
+def small_model_for(client):
+    from run_training import DEFAULT_CONFIG
+    from src.federated.dp_sgd import freeze_non_dp_heads
+    from src.models.temporal_graph_transformer import TemporalGraphTransformer
+    import torch
+
+    cfg = copy.deepcopy(DEFAULT_CONFIG)
+    cfg["dataset"]["num_features"] = client["num_features"]
+    torch.manual_seed(0)
+    m = TemporalGraphTransformer(cfg)
+    freeze_non_dp_heads(m)
+    return m
