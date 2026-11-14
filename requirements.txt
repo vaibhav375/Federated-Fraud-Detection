@@ -38,3 +38,4 @@ protobuf>=4.23.0
 
 # Metrics
 scikit-metrics>=0.1.0
+pytest>=8.0
