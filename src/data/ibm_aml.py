@@ -58,3 +58,24 @@ def load_transactions(csv_path: Path) -> pd.DataFrame:
         "label": raw["Is Laundering"].values.astype(np.int8),
     })
     return df.sort_values("ts", kind="stable").reset_index(drop=True)
+
+
+def assign_banks_to_clients(bank_tx_counts: pd.Series, n_clients: int = 10) -> dict:
+    """Greedy balancing: largest bank first, each to the currently lightest client."""
+    order = sorted(bank_tx_counts.items(), key=lambda kv: (-kv[1], kv[0]))
+    totals = [0] * n_clients
+    out = {}
+    for bank, count in order:
+        client = min(range(n_clients), key=lambda c: (totals[c], c))
+        out[bank] = client
+        totals[client] += count
+    return out
+
+
+def time_split(ts: np.ndarray, train_frac: float = 0.6, val_frac: float = 0.2) -> np.ndarray:
+    """0 = train, 1 = val, 2 = test, by global time cut-offs (ties stay together)."""
+    ts = np.asarray(ts)
+    n = len(ts)
+    t1 = ts[int(n * train_frac)]
+    t2 = ts[min(int(n * (train_frac + val_frac)), n - 1)]
+    return np.where(ts < t1, 0, np.where(ts < t2, 1, 2)).astype(np.int8)
