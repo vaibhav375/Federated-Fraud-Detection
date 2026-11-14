@@ -47,3 +47,15 @@ def test_mean_and_std_over_seeds(tiny_csv, tmp_path):
                        "--seeds", "0", "1"])
     r = out["results"]["gbdt"]
     assert set(r["seeds"]) == {"0", "1"} and "pr_auc" in r["mean"] and "pr_auc" in r["std"]
+
+
+def test_deep_models_freeze_heads_whose_loss_weight_is_zero():
+    # Adam's weight decay alone walks the unused contrastive temperature to 0,
+    # then sim/T overflows and 0 * inf = NaN poisons every gradient (seen at batch 788).
+    import copy
+    from run_training import DEFAULT_CONFIG
+    cfg = copy.deepcopy(DEFAULT_CONFIG)
+    cfg["dataset"]["num_features"] = 35
+    m = runner.model_builder(cfg)()
+    trainable = [n for n, p in m.named_parameters() if p.requires_grad]
+    assert trainable and not any(n.startswith(("contrastive_head", "aux_head")) for n in trainable)

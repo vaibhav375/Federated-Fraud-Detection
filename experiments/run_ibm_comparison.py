@@ -115,6 +115,24 @@ def select_and_test(states, clients, build_model) -> dict:
 
 # ---------------------------------------------------------------- models
 
+def model_builder(config):
+    """Builder for the deep model with the zero-weight heads frozen.
+
+    The contrastive and auxiliary losses have weight 0, but the contrastive
+    temperature is a learnable parameter: Adam's weight decay alone walks it to
+    0, sim/T then overflows and 0 * inf = NaN reaches every gradient (observed at
+    batch 788 of one centralized epoch). Freezing the unused heads removes that."""
+    def build():
+        m = TemporalGraphTransformer(config)
+        freeze_non_dp_heads(m)
+        return m
+    return build
+
+
+def trainable(model):
+    return [p for p in model.parameters() if p.requires_grad]
+
+
 def snapshot(model):
     return {k: v.detach().clone() for k, v in model.state_dict().items()}
 
@@ -128,7 +146,7 @@ def run_local(args, clients, build_model, g):
     best_states = {}
     for c in clients:
         m = build_model()
-        opt = torch.optim.Adam(m.parameters(), lr=args.lr, weight_decay=1e-5)
+        opt = torch.optim.Adam(trainable(m), lr=args.lr, weight_decay=1e-5)
         best_score, best_states[c] = -2.0, snapshot(m)
         for _ in range(args.rounds * args.local_epochs):
             train_local(m, BatchIter(clients[c]["train"], args.batch_size, args.oversample_ratio, g),
@@ -167,7 +185,7 @@ class _Pooled:
 
 def run_centralized(args, clients, build_model, g):
     m = build_model()
-    opt = torch.optim.Adam(m.parameters(), lr=args.lr, weight_decay=1e-5)
+    opt = torch.optim.Adam(trainable(m), lr=args.lr, weight_decay=1e-5)
     pooled = _Pooled([clients[c]["train"] for c in clients])
     states = []
     for _ in range(args.rounds * args.local_epochs):
@@ -200,8 +218,6 @@ def run_gbdt(args, clients, seed):
 def run_federated(args, clients, build_model, g, *, mu, client_dp_eps=None, account_dp_eps=None):
     """FedAvg/FedProx with all clients each round; optional client-level or account-level DP."""
     global_model = build_model()
-    if account_dp_eps is not None:
-        freeze_non_dp_heads(global_model)
     sizes = {c: len(clients[c]["train"]) for c in clients}
     privacy, dp_plan, client_acc = None, {}, None
     if account_dp_eps is not None:
@@ -226,10 +242,8 @@ def run_federated(args, clients, build_model, g, *, mu, client_dp_eps=None, acco
         locals_ = []
         for c in clients:
             m = build_model()
-            if account_dp_eps is not None:
-                freeze_non_dp_heads(m)
             m.load_state_dict(global_model.state_dict())
-            opt = torch.optim.Adam([p for p in m.parameters() if p.requires_grad], lr=args.lr,
+            opt = torch.optim.Adam(trainable(m), lr=args.lr,
                                    weight_decay=0.0 if account_dp_eps is not None else 1e-5)
             if account_dp_eps is not None:
                 d = dp_plan[c]
@@ -249,8 +263,6 @@ def run_federated(args, clients, build_model, g, *, mu, client_dp_eps=None, acco
         if not is_finite(candidate):
             candidate.load_state_dict(prev)  # one bad round must not poison the rest
         global_model = candidate
-        if account_dp_eps is not None:
-            freeze_non_dp_heads(global_model)
         states.append((val_pr_auc(evaluate_split({c: global_model for c in clients}, clients, "val"), clients),
                        {c: snapshot(global_model) for c in clients}))
 
@@ -328,8 +340,7 @@ def main(argv=None) -> dict:
     config["training"]["pos_weight"] = args.pos_weight
     config["training"]["fraud_rate_prior"] = prior
 
-    def build_model():
-        return TemporalGraphTransformer(config)
+    build_model = model_builder(config)
 
     runs = []  # (name, callable(seed, generator))
     for name in args.models:
