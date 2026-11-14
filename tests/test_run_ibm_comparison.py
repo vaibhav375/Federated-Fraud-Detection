@@ -82,3 +82,31 @@ def test_aggregation_does_not_release_local_memory_banks():
     out = runner.aggregate(global_model, locals_, [3, 1], build)
     for name, buf in global_model.contrastive_head.named_buffers():
         assert torch.equal(dict(out.contrastive_head.named_buffers())[name], buf), name
+
+
+def test_local_fit_extraction_preserves_federated_results(tiny_csv, tmp_path):
+    # Golden values recorded at 8835099, before local_fit existed; the A0 JSON must stay reproducible.
+    r = runner.main(["--data-path", _build(tiny_csv, tmp_path), "--out", str(tmp_path / "r.json"),
+                     "--models", "fedprox", "account_dp", "--epsilons", "8", "--rounds", "2",
+                     "--local-epochs", "1", "--batch-size", "32", "--delta", "1e-3"])["results"]
+    fp, dp = r["fedprox"]["seeds"]["0"], r["account_dp_eps8.0"]["seeds"]["0"]
+    assert fp["pooled"]["pr_auc"] == pytest.approx(0.06821378340365682, abs=1e-12)
+    assert fp["pooled"]["roc_auc"] == pytest.approx(0.4551282051282051, abs=1e-12)
+    assert fp["pooled"]["threshold"] == pytest.approx(0.039456289261579514, abs=1e-12)
+    assert dp["pooled"]["pr_auc"] == pytest.approx(0.06805555555555555, abs=1e-12)
+    assert dp["pooled"]["roc_auc"] == pytest.approx(0.44871794871794873, abs=1e-12)
+    assert dp["pooled"]["threshold"] == pytest.approx(0.03749164193868637, abs=1e-12)
+    assert dp["privacy"]["0"]["epsilon_spent"] == pytest.approx(7.991569684852897, abs=1e-12)
+
+
+def test_local_fit_trains_in_place(tiny_client):
+    import torch
+    from helpers import small_model_for
+    m = small_model_for(tiny_client)
+    before = {n: p.detach().clone() for n, p in m.named_parameters()}
+    args = runner.parse_args(["--local-epochs", "1", "--batch-size", "32"])
+    runner.local_fit(m, tiny_client, args, [p.detach().clone() for p in m.parameters()],
+                     torch.Generator().manual_seed(0), mu=0.1)
+    changed = [n for n, p in m.named_parameters() if p.requires_grad and not torch.equal(p, before[n])]
+    assert changed
+    assert all(torch.equal(p, before[n]) for n, p in m.named_parameters() if not p.requires_grad)

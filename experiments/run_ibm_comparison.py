@@ -226,6 +226,29 @@ def run_gbdt(args, clients, seed):
     return final_metrics(probs["val"], probs["test"], clients), None
 
 
+def account_dp_plan(args, n_accounts: int, eps: float) -> dict:
+    """Per-bank sampling rate, steps per round and noise multiplier for account-level DP."""
+    q = min(1.0, args.dp_batch_accounts / n_accounts)
+    steps = args.local_epochs * math.ceil(1 / q)
+    return {"sample_rate": q, "steps_per_round": steps, "n_accounts": n_accounts,
+            "sigma": noise_multiplier_for(eps, args.delta, q, args.rounds * steps)}
+
+
+def local_fit(model, client, args, global_params, generator, *, mu, account_dp=None, client_dp=None):
+    """One round of local training in place. account_dp = (AccountDPConfig, plan, accountant)."""
+    opt = torch.optim.Adam(trainable(model), lr=args.lr,
+                           weight_decay=0.0 if account_dp is not None else 1e-5)
+    if account_dp is not None:
+        cfg, d, accountant = account_dp
+        train_local_account_dp(model, client["train"], opt, cfg, d["sigma"], d["sample_rate"],
+                               d["steps_per_round"], accountant, global_params=global_params,
+                               mu=mu, pos_weight=args.pos_weight, generator=generator)
+    else:
+        train_local(model, BatchIter(client["train"], args.batch_size, args.oversample_ratio, generator),
+                    opt, client_dp, None, "cpu", global_params=global_params, mu=mu,
+                    epochs=args.local_epochs)
+
+
 def run_federated(args, clients, build_model, g, *, mu, client_dp_eps=None, account_dp_eps=None):
     """FedAvg/FedProx with all clients each round; optional client-level or account-level DP."""
     global_model = build_model()
@@ -233,11 +256,7 @@ def run_federated(args, clients, build_model, g, *, mu, client_dp_eps=None, acco
     privacy, dp_plan, client_acc = None, {}, None
     if account_dp_eps is not None:
         for c in clients:
-            n_acc = clients[c]["n_train_accounts"]
-            q = min(1.0, args.dp_batch_accounts / n_acc)
-            steps = args.local_epochs * math.ceil(1 / q)
-            dp_plan[c] = {"sample_rate": q, "steps_per_round": steps, "n_accounts": n_acc,
-                          "sigma": noise_multiplier_for(account_dp_eps, args.delta, q, args.rounds * steps),
+            dp_plan[c] = {**account_dp_plan(args, clients[c]["n_train_accounts"], account_dp_eps),
                           "accountant": RDPAccountant()}
     if client_dp_eps is not None:
         client_acc = DPFedAvgAccountant(delta=args.delta)
@@ -254,17 +273,9 @@ def run_federated(args, clients, build_model, g, *, mu, client_dp_eps=None, acco
         for c in clients:
             m = build_model()
             m.load_state_dict(global_model.state_dict())
-            opt = torch.optim.Adam(trainable(m), lr=args.lr,
-                                   weight_decay=0.0 if account_dp_eps is not None else 1e-5)
-            if account_dp_eps is not None:
-                d = dp_plan[c]
-                train_local_account_dp(m, clients[c]["train"], opt, dp_cfg, d["sigma"], d["sample_rate"],
-                                       d["steps_per_round"], d["accountant"], global_params=global_params,
-                                       mu=mu, pos_weight=args.pos_weight, generator=g)
-            else:
-                train_local(m, BatchIter(clients[c]["train"], args.batch_size, args.oversample_ratio, g),
-                            opt, dp, None, "cpu", global_params=global_params, mu=mu,
-                            epochs=args.local_epochs)
+            local_fit(m, clients[c], args, global_params, g, mu=mu, client_dp=dp,
+                      account_dp=(dp_cfg, dp_plan[c], dp_plan[c]["accountant"])
+                      if account_dp_eps is not None else None)
             locals_.append(m)
         candidate = aggregate(global_model, locals_, [sizes[c] for c in clients], build_model)
         if dp is not None:
