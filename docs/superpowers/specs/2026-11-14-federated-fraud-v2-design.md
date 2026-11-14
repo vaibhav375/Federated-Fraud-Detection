@@ -142,5 +142,6 @@ accounted at the highest rate; then pull A4 (pretraining) forward.
   receive. Poisoned updates are out of scope.
 - The guarantee covers each sending account's outgoing transactions at its own
   bank. It does not cover an account's role as a receiver.
-- Hyperparameter and threshold tuning are not counted in ε.
+- Hyperparameter and threshold tuning, and choosing the best round on validation data, are not counted in ε.
+- Per-bank transaction and account counts (used for aggregation weights and the DP sampling rate) and the pooled training fraud rate (used to initialise the classifier bias) are treated as public.
 - The Kubernetes deployment is a single-machine simulation.

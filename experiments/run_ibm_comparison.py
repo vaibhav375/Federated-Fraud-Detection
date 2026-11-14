@@ -129,6 +129,17 @@ def model_builder(config):
     return build
 
 
+def aggregate(global_model, locals_, sizes, build_model):
+    """Weighted average of local models, keeping the global contrastive buffers.
+
+    train_local fills each local memory bank with projections of real training
+    rows, and the DP mechanisms clip and noise parameters only, so averaging the
+    buffers would release that bank outside the privacy guarantee."""
+    for m in locals_:
+        m.contrastive_head.load_state_dict(global_model.contrastive_head.state_dict())
+    return federated_aggregate(build_model(), locals_, sizes)
+
+
 def trainable(model):
     return [p for p in model.parameters() if p.requires_grad]
 
@@ -255,7 +266,7 @@ def run_federated(args, clients, build_model, g, *, mu, client_dp_eps=None, acco
                             opt, dp, None, "cpu", global_params=global_params, mu=mu,
                             epochs=args.local_epochs)
             locals_.append(m)
-        candidate = federated_aggregate(build_model(), locals_, [sizes[c] for c in clients])
+        candidate = aggregate(global_model, locals_, [sizes[c] for c in clients], build_model)
         if dp is not None:
             w = max(sizes.values()) / sum(sizes.values())
             sigma = add_server_noise(candidate, dp, w)

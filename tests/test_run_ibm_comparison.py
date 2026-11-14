@@ -59,3 +59,26 @@ def test_deep_models_freeze_heads_whose_loss_weight_is_zero():
     m = runner.model_builder(cfg)()
     trainable = [n for n, p in m.named_parameters() if p.requires_grad]
     assert trainable and not any(n.startswith(("contrastive_head", "aux_head")) for n in trainable)
+
+
+def test_aggregation_does_not_release_local_memory_banks():
+    # train_local fills each local contrastive memory bank with projections of real
+    # training rows; clip_update/add_server_noise only touch parameters, so averaged
+    # buffers would leave the bank outside the DP mechanism.
+    import copy
+    import torch
+    from run_training import DEFAULT_CONFIG
+    cfg = copy.deepcopy(DEFAULT_CONFIG)
+    cfg["dataset"]["num_features"] = 35
+    build = runner.model_builder(cfg)
+    global_model = build()
+    locals_ = []
+    for _ in range(2):
+        m = build()
+        m.load_state_dict(global_model.state_dict())
+        m.contrastive_head.memory_bank.add_(1.0)
+        m.contrastive_head.memory_ptr.add_(5)
+        locals_.append(m)
+    out = runner.aggregate(global_model, locals_, [3, 1], build)
+    for name, buf in global_model.contrastive_head.named_buffers():
+        assert torch.equal(dict(out.contrastive_head.named_buffers())[name], buf), name
