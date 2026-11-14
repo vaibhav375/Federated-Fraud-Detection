@@ -88,7 +88,7 @@ def round_generator(seed: int, rnd: int, client: int) -> torch.Generator:
     return torch.Generator().manual_seed(seed * 1_000_003 + rnd * 1_009 + client)
 
 
-@functools.lru_cache(maxsize=None)
+@functools.lru_cache(maxsize=1)  # one client per process: Ray actors serve every partition over a run
 def _load_client(data_path: str, client_id: int, cap):
     return load_indexed_client(Path(data_path), client_id, cap, seed=0)
 
@@ -109,6 +109,7 @@ class BankClient(NumPyClient):
         args, rnd = self.s.args, int(config["server_round"])
         data = client_data(self.s, self.cid)
         model = initial_model(self.build, self.s.seed)
+        torch.manual_seed(round_generator(self.s.seed, rnd, self.cid).initial_seed())  # own dropout stream
         set_trainable(model, parameters)
         global_params = [p.detach().clone() for p in model.parameters()]
         account_dp = None
@@ -120,11 +121,15 @@ class BankClient(NumPyClient):
                           RDPAccountant())
         local_fit(model, data, args, global_params, round_generator(self.s.seed, rnd, self.cid),
                   mu=args.mu, account_dp=account_dp)
-        if self.s.secagg:
+        for name, p in model.named_parameters():
+            if not p.requires_grad:
+                continue
+            # The server cannot see which bank diverged under SecAgg+ (NaN quantizes to -c), so refuse to send.
+            if not torch.isfinite(p).all():
+                raise ValueError(f"{name} is not finite after local training")
             # SecAgg+ clips silently to [-c, c]; a clipped value would corrupt the aggregate.
-            for name, p in model.named_parameters():
-                if p.requires_grad and p.detach().abs().max().item() > self.s.clipping_range:
-                    raise ValueError(f"{name} exceeds the SecAgg+ clipping range {self.s.clipping_range}")
+            if self.s.secagg and p.detach().abs().max().item() > self.s.clipping_range:
+                raise ValueError(f"{name} exceeds the SecAgg+ clipping range {self.s.clipping_range}")
         arrays = trainable_arrays(model)
         if self.s.dump_locals:
             out = Path(self.s.out_dir) / "locals"
@@ -208,8 +213,10 @@ def run(settings: FlowerSettings, rounds: int) -> None:
                    backend_config={"client_resources": {"num_cpus": 1},
                                    "init_args": {"num_cpus": 2, "include_dashboard": False,
                                                  "object_store_memory": 200 * 2**20}})
-    if not (out / "global" / f"round{rounds}.npz").exists():
-        raise RuntimeError(f"Flower run stopped before round {rounds}; see the log above")
+    # A halted SecAgg+ round only logs and the next round reuses stale weights, so check every round.
+    missing = [r for r in range(1, rounds + 1) if not (out / "global" / f"round{r}.npz").exists()]
+    if missing:
+        raise RuntimeError(f"Flower produced no aggregate for round {missing[0]} (missing: {missing}); see the log above")
 
 
 def aggregation_errors(out_dir, sizes: dict, rounds: int) -> list:

@@ -39,3 +39,14 @@ def test_flower_account_dp_reports_same_epsilon_as_plain_loop(tiny3):
         assert r["privacy"][c]["epsilon_spent"] == pytest.approx(e["epsilon_spent"], abs=1e-9)
         assert r["privacy"][c]["sigma"] == pytest.approx(e["sigma"], abs=1e-12)
         assert r["privacy"][c]["steps"] == e["steps"]
+
+
+def test_max_train_accounts_equals_form_is_respected():
+    _, run_args = rf.parse(["--max-train-accounts=5000"])
+    assert "20000" not in run_args and "--max-train-accounts=5000" in run_args
+
+
+def test_account_dp_rejects_delta_too_large_before_training(tiny3, monkeypatch):
+    monkeypatch.setattr(rf, "run", lambda *a, **k: pytest.fail("trained before checking delta"))
+    with pytest.raises(SystemExit, match="delta"):
+        _run(tiny3, "--account-dp-eps", "8", "--delta", "0.5")

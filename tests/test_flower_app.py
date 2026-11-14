@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import numpy as np
 import pytest
 import torch
@@ -138,3 +140,45 @@ def test_server_refuses_to_aggregate_with_failures(tiny3):
     strategy = RecordingFedAvg(_settings(tiny3), rounds=1)
     with pytest.raises(RuntimeError, match="1 client"):
         strategy.aggregate_fit(1, [], [RuntimeError("boom")])
+
+
+# ---------------------------------------------------------------- final-review fixes
+
+@pytest.mark.parametrize("secagg", [True, False])
+def test_client_refuses_non_finite_values(tiny3, secagg):
+    from src.federated.flower_app import BankClient, build_model_for, initial_model
+    s = _settings(tiny3, secagg=secagg)
+    p = _initial_arrays(s)
+    p[1] = np.full_like(p[1], np.nan)
+    second = [n for n, q in initial_model(build_model_for(s), 0).named_parameters() if q.requires_grad][1]
+    with pytest.raises(ValueError, match=second):
+        BankClient(s, 0).fit(p, {"server_round": 1})
+
+
+def test_client_loader_keeps_one_client_in_memory():
+    from src.federated import flower_app
+    assert flower_app._load_client.cache_info().maxsize == 1
+
+
+def test_dropout_stream_differs_per_round_and_client(tiny3, monkeypatch):
+    from src.federated import flower_app
+    seen = []
+    monkeypatch.setattr(flower_app, "local_fit", lambda *a, **k: seen.append(torch.rand(1).item()))
+    s = _settings(tiny3)
+    p = _initial_arrays(s)
+    for rnd, c in [(1, 0), (1, 0), (2, 0), (1, 1)]:
+        flower_app.BankClient(s, c).fit(p, {"server_round": rnd})
+    assert seen[0] == seen[1] and len({seen[0], seen[2], seen[3]}) == 3
+
+
+def test_run_requires_every_round_aggregate(tiny3, monkeypatch):
+    from src.federated import flower_app
+    s = _settings(tiny3)
+
+    def only_last_round(*a, **k):
+        out = Path(s.out_dir) / "global"
+        out.mkdir(parents=True, exist_ok=True)
+        np.savez(out / "round2.npz", np.zeros(1))
+    monkeypatch.setattr(flower_app, "run_simulation", only_last_round)
+    with pytest.raises(RuntimeError, match="round 1"):
+        flower_app.run(s, 2)

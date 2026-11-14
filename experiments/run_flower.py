@@ -38,7 +38,7 @@ def parse(argv):
     p.add_argument("--debug-dump-locals", action="store_true")
     p.add_argument("--clipping-range", type=float, default=16.0)
     args, rest = p.parse_known_args(argv)
-    if "--max-train-accounts" not in rest:
+    if not any(x == "--max-train-accounts" or x.startswith("--max-train-accounts=") for x in rest):
         rest += ["--max-train-accounts", "20000"]
     return args, rest + ["--rounds", str(args.rounds)]  # DP noise is calibrated to the round count
 
@@ -62,6 +62,10 @@ def main(argv=None) -> dict:
     s = FlowerSettings(data_path=a.data_path, run_args=run_args, n_clients=meta["n_clients"], seed=a.seed,
                        account_dp_eps=a.account_dp_eps, secagg=not a.no_secagg, clipping_range=a.clipping_range,
                        out_dir=a.work_dir, dump_locals=a.debug_dump_locals)
+    if s.account_dp_eps is not None:
+        smallest = min(client_data(s, c)["n_train_accounts"] for c in range(s.n_clients))
+        if s.args.delta >= 1.0 / smallest:
+            raise SystemExit(f"delta={s.args.delta} must be below 1/(train accounts) = 1/{smallest} for every client")
     start = time.time()
     run(s, a.rounds)
     glob = Path(a.work_dir) / "global"
