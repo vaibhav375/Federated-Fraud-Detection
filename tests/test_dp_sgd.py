@@ -10,6 +10,7 @@ from src.federated.dp_sgd import (AccountDPConfig, account_clipped_sum, freeze_n
 from src.models.temporal_graph_transformer import TemporalGraphTransformer
 
 FROZEN = ("contrastive_head", "aux_head")
+GOLDEN_DEFAULT_ROWS = [0, 8, 5, 9, 16, 14, 18, 17, 29, 20, 28, 27]  # recorded before fraud-rows-first existed
 
 
 def small_model():
@@ -106,3 +107,51 @@ def test_fedprox_step_pulls_toward_global(tiny_client):
                            sample_rate=1e-9, steps=1, accountant=RDPAccountant(),
                            global_params=global_params, mu=1.0, generator=torch.Generator().manual_seed(0))
     assert dist() < d0
+
+
+# ---- fraud rows first inside a sampled account
+
+def _one_account(n_rows):
+    return (1, torch.zeros(n_rows, dtype=torch.long), torch.arange(n_rows),
+            torch.tensor([0]), torch.tensor([n_rows]))
+
+
+def test_fraud_rows_first_always_includes_the_fraud_row():
+    from src.federated.dp_sgd import _sample_rows
+
+    labels = torch.zeros(10, dtype=torch.long)
+    labels[7] = 1
+    g = torch.Generator().manual_seed(0)
+    with_labels = sum(7 in _sample_rows(*_one_account(10), 1.0, 4, g, labels=labels)[1].tolist() for _ in range(200))
+    without = sum(7 in _sample_rows(*_one_account(10), 1.0, 4, g)[1].tolist() for _ in range(200))
+    assert with_labels == 200
+    assert without < 150
+
+
+def test_fraud_rows_first_caps_rows_per_account():
+    from src.federated.dp_sgd import _sample_rows
+
+    labels = torch.tensor([1, 1, 0, 1, 1, 0, 1, 1])
+    g = torch.Generator().manual_seed(0)
+    for _ in range(50):
+        picked, rows, slot = _sample_rows(*_one_account(8), 1.0, 4, g, labels=labels)
+        assert len(rows) == 4 and len(set(rows.tolist())) == 4
+        assert labels[rows].sum() == 4
+
+
+def test_default_sampling_unchanged():
+    from src.federated.dp_sgd import _sample_rows
+
+    inverse, order = torch.arange(30) // 10, torch.arange(30)
+    g = torch.Generator().manual_seed(0)
+    rows = _sample_rows(3, inverse, order, torch.tensor([0, 10, 20]), torch.tensor([10, 10, 10]), 1.0, 4, g)[1]
+    assert rows.tolist() == GOLDEN_DEFAULT_ROWS
+
+
+def test_train_local_account_dp_fraud_first_runs(tiny_client):
+    m = small_model_for(tiny_client)
+    opt = torch.optim.Adam([p for p in m.parameters() if p.requires_grad], lr=1e-3)
+    cfg = AccountDPConfig(8.0, 1e-3, 1.0, 4, 4, fraud_rows_first=True)
+    out = train_local_account_dp(m, tiny_client["train"], opt, cfg, 1.0, 0.5, 3, RDPAccountant(),
+                                 pos_weight=8.0, generator=torch.Generator().manual_seed(0))
+    assert out["loss"] is not None and out["loss"] == out["loss"]

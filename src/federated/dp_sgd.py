@@ -68,6 +68,7 @@ class AccountDPConfig:
     clip_norm: float = 1.0
     accounts_per_batch: int = 256
     examples_per_account: int = 4
+    fraud_rows_first: bool = False
 
 
 def _account_groups(dataset):
@@ -79,17 +80,25 @@ def _account_groups(dataset):
     return len(uniq), inverse, order, starts, counts
 
 
-def _sample_rows(n_acc, inverse, order, starts, counts, sample_rate, per_account, generator):
+def _sample_rows(n_acc, inverse, order, starts, counts, sample_rate, per_account, generator, labels=None):
     picked = (torch.rand(n_acc, generator=generator) < sample_rate).nonzero(as_tuple=True)[0]
     if len(picked) == 0:
         return picked, torch.empty(0, dtype=torch.long), torch.empty(0, dtype=torch.long)
     take = torch.clamp(counts[picked], max=per_account)
     slot = torch.repeat_interleave(torch.arange(len(picked)), take)
-    # Random distinct offsets within each account: rank of a random key inside the group.
-    offsets = torch.cat([torch.randperm(int(c), generator=generator)[:int(t)]
-                         for c, t in zip(counts[picked].tolist(), take.tolist())])
-    rows = order[starts[picked].repeat_interleave(take) + offsets]
-    return picked, rows, slot
+    if labels is None:
+        # Random distinct offsets within each account: rank of a random key inside the group.
+        offsets = torch.cat([torch.randperm(int(c), generator=generator)[:int(t)]
+                             for c, t in zip(counts[picked].tolist(), take.tolist())])
+        rows = order[starts[picked].repeat_interleave(take) + offsets]
+        return picked, rows, slot
+    # Fraud rows first, random within each class. The choice reads only the account's own
+    # rows and the account's whole contribution is clipped, so it costs no epsilon.
+    chosen = []
+    for s, c, t in zip(starts[picked].tolist(), counts[picked].tolist(), take.tolist()):
+        group = order[s:s + c][torch.randperm(c, generator=generator)]
+        chosen.append(group[torch.argsort(labels[group], descending=True, stable=True)[:t]])
+    return picked, torch.cat(chosen), slot
 
 
 def train_local_account_dp(model, dataset, optimizer, cfg: AccountDPConfig, sigma: float,
@@ -98,12 +107,14 @@ def train_local_account_dp(model, dataset, optimizer, cfg: AccountDPConfig, sigm
     model.train()
     trainable = [(n, p) for n, p in model.named_parameters() if p.requires_grad]
     n_acc, inverse, order, starts, counts = _account_groups(dataset)
+    row_labels = dataset.example_labels
     denom = sample_rate * n_acc  # expected batch size, fixed so noise scale is data-independent
     lr = optimizer.param_groups[0]["lr"]
     losses, picked_counts = [], []
     for _ in range(steps):
         picked, rows, slot = _sample_rows(n_acc, inverse, order, starts, counts, sample_rate,
-                                          cfg.examples_per_account, generator)
+                                          cfg.examples_per_account, generator,
+                                          labels=row_labels if cfg.fraud_rows_first else None)
         summed = {}
         if len(rows):
             seqs, labels = dataset.gather(rows)
