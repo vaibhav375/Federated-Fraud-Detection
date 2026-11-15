@@ -136,7 +136,8 @@ def aggregate(global_model, locals_, sizes, build_model):
     rows, and the DP mechanisms clip and noise parameters only, so averaging the
     buffers would release that bank outside the privacy guarantee."""
     for m in locals_:
-        m.contrastive_head.load_state_dict(global_model.contrastive_head.state_dict())
+        if hasattr(m, "contrastive_head"):  # a head-only model has no buffers to protect
+            m.contrastive_head.load_state_dict(global_model.contrastive_head.state_dict())
     return federated_aggregate(build_model(), locals_, sizes)
 
 
@@ -249,8 +250,12 @@ def local_fit(model, client, args, global_params, generator, *, mu, account_dp=N
                     epochs=args.local_epochs)
 
 
-def run_federated(args, clients, build_model, g, *, mu, client_dp_eps=None, account_dp_eps=None):
-    """FedAvg/FedProx with all clients each round; optional client-level or account-level DP."""
+def run_federated(args, clients, build_model, g, *, mu, client_dp_eps=None, account_dp_eps=None,
+                  include_initial=False):
+    """FedAvg/FedProx with all clients each round; optional client-level or account-level DP.
+
+    include_initial: the starting model is scored on validation as round 0 and can be selected,
+    so fine-tuning a pretrained model is only kept when it helps."""
     global_model = build_model()
     sizes = {c: len(clients[c]["train"]) for c in clients}
     privacy, dp_plan, client_acc = None, {}, None
@@ -261,9 +266,14 @@ def run_federated(args, clients, build_model, g, *, mu, client_dp_eps=None, acco
     if client_dp_eps is not None:
         client_acc = DPFedAvgAccountant(delta=args.delta)
     dp_cfg = AccountDPConfig(account_dp_eps or 0.0, args.delta, args.clip_norm,
-                             args.dp_batch_accounts, args.dp_examples_per_account)
+                             args.dp_batch_accounts, args.dp_examples_per_account,
+                             fraud_rows_first=getattr(args, "dp_fraud_rows_first", False))
 
-    states = []
+    def state_of(model):
+        return (val_pr_auc(evaluate_split({c: model for c in clients}, clients, "val"), clients),
+                {c: snapshot(model) for c in clients})
+
+    states = [state_of(global_model)] if include_initial else []
     for _ in range(args.rounds):
         prev = snapshot(global_model)
         global_params = [p.detach().clone() for p in global_model.parameters()]
@@ -285,8 +295,7 @@ def run_federated(args, clients, build_model, g, *, mu, client_dp_eps=None, acco
         if not is_finite(candidate):
             candidate.load_state_dict(prev)  # one bad round must not poison the rest
         global_model = candidate
-        states.append((val_pr_auc(evaluate_split({c: global_model for c in clients}, clients, "val"), clients),
-                       {c: snapshot(global_model) for c in clients}))
+        states.append(state_of(global_model))
 
     if account_dp_eps is not None:
         privacy = {str(c): {"epsilon_spent": float(d["accountant"].get_epsilon(args.delta)),
@@ -295,7 +304,11 @@ def run_federated(args, clients, build_model, g, *, mu, client_dp_eps=None, acco
                    for c, d in dp_plan.items()}
     if client_acc is not None:
         privacy = client_acc.cumulative()
-    return select_and_test(states, clients, build_model), privacy
+    metrics = select_and_test(states, clients, build_model)
+    best = max(range(len(states)), key=lambda i: states[i][0])  # same first-maximum rule as select_and_test
+    metrics["selected_round"] = best + (0 if include_initial else 1)
+    metrics["val_pr_auc"] = states[best][0]
+    return metrics, privacy
 
 
 # ---------------------------------------------------------------- driver
