@@ -1,0 +1,109 @@
+{
+  "config": {
+    "dataset": {
+      "num_features": 35
+    },
+    "model": {
+      "hidden_dim": 32,
+      "temporal": {
+        "num_heads": 4,
+        "num_layers": 2,
+        "dropout": 0.1
+      },
+      "graph": {
+        "num_layers": 2,
+        "dropout": 0.1
+      },
+      "classifier": {
+        "hidden_dim": 32,
+        "dropout": 0.2
+      },
+      "contrastive": {
+        "projection_dim": 32,
+        "temperature": 0.07,
+        "memory_bank_size": 1000
+      }
+    },
+    "training": {
+      "loss_weights": {
+        "bce": 1.0,
+        "contrastive": 0.0,
+        "auxiliary": 0.0
+      },
+      "pos_weight": 8.0,
+      "fraud_rate_prior": 0.0004364039341453463
+    }
+  },
+  "num_features": 35,
+  "val_pr_auc_by_epoch": [
+    0.07107726191482566,
+    0.15484254868134642,
+    0.16114715693016052,
+    0.15053844857894932,
+    0.15559633955974594
+  ],
+  "best_epoch": 3,
+  "test": {
+    "n": 1385052,
+    "n_fraud": 925,
+    "pr_auc": 0.2424371585022008,
+    "roc_auc": 0.959940648705119,
+    "recall_at_1pct_fpr": 0.5535135135135135,
+    "precision": 0.5529100529100529,
+    "recall": 0.22594594594594594,
+    "f1": 0.3207981580966999,
+    "threshold": 0.9747518301010132
+  },
+  "train_seconds": 5749.7,
+  "data": {
+    "train": {
+      "n": 4154408,
+      "fraud": 1813
+    },
+    "val": {
+      "n": 1384589,
+      "fraud": 827
+    },
+    "test": {
+      "n": 1385052,
+      "fraud": 925
+    }
+  },
+  "train_accounts": 675527,
+  "source": "/Volumes/Untitled/capstone_files/Federated-Fraud-Detection/data/ibm_li_small",
+  "epochs": 5,
+  "seed": 0,
+  "args": {
+    "data_path": "/Volumes/Untitled/capstone_files/Federated-Fraud-Detection/data/ibm_li_small",
+    "out": "/Volumes/Untitled/capstone_files/Federated-Fraud-Detection/results/comparison/ibm_hi_small.json",
+    "models": [
+      "local",
+      "centralized",
+      "gbdt",
+      "fedavg",
+      "fedprox",
+      "client_dp",
+      "account_dp"
+    ],
+    "epsilons": [
+      1.0,
+      3.0,
+      8.0
+    ],
+    "seeds": [
+      0
+    ],
+    "rounds": 10,
+    "local_epochs": 2,
+    "batch_size": 256,
+    "lr": 0.001,
+    "mu": 0.1,
+    "pos_weight": 8.0,
+    "oversample_ratio": 0.02,
+    "delta": 1e-06,
+    "clip_norm": 1.0,
+    "dp_batch_accounts": 256,
+    "dp_examples_per_account": 4,
+    "max_train_accounts": null
+  }
+}
