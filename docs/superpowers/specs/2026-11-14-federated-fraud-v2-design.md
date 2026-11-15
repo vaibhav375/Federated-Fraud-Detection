@@ -67,7 +67,7 @@ claim has a measurement and a baseline next to it.
 - Noise multipliers for account-level DP, δ=1e-6, 10 rounds × 2 local epochs,
   50,000 accounts per bank, 256 accounts per batch: σ=1.64 (ε=1), 0.88 (ε=3),
   0.63 (ε=8). These are ordinary DP-SGD noise levels.
-- `xgboost` fails to import (missing `libomp`). Docker is not installed.
+- `xgboost` fails to import (missing `libomp`). Docker is installed.
   `kubectl` and `kind` are installed. 26 GB free on the project drive.
 
 ## Not verified
@@ -109,7 +109,7 @@ earlier ones, so they are not pinned here.
 | **A1 Federated boosting** | Federated gradient-boosted trees on the same splits (needs `brew install libomp`) | Table row exists; decide whether the deep model stays the headline |
 | **A2 Real graph branch** | Bank-local transaction graph, edge-aware GNN, capped neighbour sampling | Written statement of what the DP guarantee covers once neighbours' data enters an example; ablation with and without the branch |
 | **A3 Personalisation** | Per-bank fine-tuning of the classifier head | Per-bank gain table, small banks reported separately |
-| **A4 Public pretraining** | Pretrain on rebuilt PaySim, fine-tune on IBM with DP | Ablation at ε=3 and ε=8; paper text says pretraining data is public and outside ε |
+| **A4 Public pretraining** (moved ahead of A1; see below) | Pretrain without DP on IBM LI-Small (same schema, separately generated banks and accounts), fine-tune on HI-Small with account-level DP on the classifier head only | Account-level DP at ε=8 keeps at least half of the no-DP PR-AUC; ablation at ε=1, 3, 8; paper text says LI-Small is public and outside ε |
 | **A5 DP-FTRL** | Alternative DP optimizer that needs no sampling assumption | Same-ε comparison against DP-SGD |
 | **A6 Cross-bank features** | A few per-account features computed across banks by secure sum or private set intersection | Gain measured; leakage of each feature stated |
 | **A7 Secondary datasets** | IEEE-CIS and PaySim rebuilt from raw through the same builder; European CC as a tabular baseline | Same tables as A0 for each |
@@ -136,12 +136,32 @@ If account-level DP at ε=8 keeps less than half the no-DP PR-AUC, try in order:
 more accounts per batch; a higher sampling rate for accounts with a fraud label,
 accounted at the highest rate; then pull A4 (pretraining) forward.
 
+**Result (2026-11-15): A0 hit this case, and the order above was wrong for this
+data.** Account-level DP at ε=1 and ε=3 output a near-constant score (PR-AUC at
+chance). A probe on one client (20,000 accounts, ε=3 plan) measured why: 75
+accounts have any fraud; a step samples about 255 accounts, 0.8 of them fraud
+accounts, and 0.53 contribute a fraud row; the clipped fraud gradient has norm
+0.53 against a noise norm of 237 (44,449 trainable parameters). The same code with
+σ=0 learns (validation PR-AUC 0.04 → 0.07 in two rounds). Larger batches gain only
+1.2–1.8× in signal-to-noise at ε=3–8, and fraud oversampling accounted at the
+highest rate behaves like a larger batch. Training only the 1,089-parameter
+classifier cuts noise 6.4×, which needs a pretrained backbone. So A4 comes next,
+with three changes that cost no ε: no account cap, every sampled account's
+fraud rows taken first, and DP restricted to the classifier head.
+
+PaySim was the planned pretraining source and is dropped: 99.85% of its sending
+accounts appear once (no history for the sequence branch), its fraud label is
+account takeover rather than laundering, and about a third of the IBM features
+have no PaySim equivalent. LI-Small has the same columns and the same label type.
+LI-Small and HI-Small must be checked for shared accounts before use.
+
 ## Assumptions the paper must state
 
 - Banks and the server follow the protocol but may try to learn from what they
   receive. Poisoned updates are out of scope.
 - The guarantee covers each sending account's outgoing transactions at its own
   bank. It does not cover an account's role as a receiver.
+- Pretraining data (IBM LI-Small) is public and outside ε.
 - Hyperparameter and threshold tuning, and choosing the best round on validation data, are not counted in ε.
 - Per-bank transaction and account counts (used for aggregation weights and the DP sampling rate) and the pooled training fraud rate (used to initialise the classifier bias) are treated as public.
 - The Kubernetes deployment is a single-machine simulation.

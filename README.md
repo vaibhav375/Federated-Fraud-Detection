@@ -71,6 +71,48 @@ Input: transaction sequence (batch, 10 transactions, 10 features)
   floor from ~2000 down to ~20–50, a 40–100× improvement, with zero change to the
   privacy mechanism itself.
 
+## IBM AML results (v2 pipeline)
+
+The sections below this one describe v1 (synthetic data and PaySim). v2 rebuilds the pipeline on IBM AML
+HI-Small with honest splits: 10 clients that are groups of real banks, a chronological 60/20/20 split,
+per-account causal histories, no SMOTE, and the account as the privacy unit. Design:
+[spec](docs/superpowers/specs/2026-11-14-federated-fraud-v2-design.md). Full write-up:
+[STAGE_A0_GATE.md](results/comparison/STAGE_A0_GATE.md). Reproduce with
+`python3 experiments/build_ibm_aml.py` then
+`python3 experiments/run_ibm_comparison.py --seeds 0 --epsilons 1 3 8 --max-train-accounts 20000`.
+
+Pooled test set: 1,015,882 transactions, 1,798 laundering (0.177%). A random ranking scores PR-AUC ≈ 0.0018.
+One seed, at most 20,000 train accounts per client.
+
+| Model | PR-AUC | Recall @ 1% FPR | F1 | Train time (s) | ε spent |
+|---|---|---|---|---|---|
+| local | 0.203 | 0.419 | 0.338 | 8218 | none |
+| centralized | 0.523 | 0.700 | 0.591 | 8165 | none |
+| gbdt | 0.525 | 0.711 | 0.544 | 80 | none |
+| fedavg | 0.336 | 0.544 | 0.397 | 6900 | none |
+| fedprox | 0.203 | 0.451 | 0.259 | 7218 | none |
+| client_dp_eps1.0 | 0.002 | 0.000 | 0.004 | 7384 | 3.3 (client-level, composed) |
+| client_dp_eps3.0 | 0.003 | 0.022 | 0.007 | 7223 | 11.0 (client-level, composed) |
+| client_dp_eps8.0 | 0.011 | 0.037 | 0.026 | 7207 | 36.5 (client-level, composed) |
+| account_dp_eps1.0 | 0.001 | 0.004 | 0.001 | 3696 | max 0.99 (account-level) |
+| account_dp_eps3.0 | 0.001 | 0.004 | 0.001 | 3832 | max 2.99 (account-level) |
+| account_dp_eps8.0 | 0.001 | 0.004 | 0.000 | 4905 | max 7.99 (account-level) |
+
+1. **Federated training helps without DP.** FedAvg (0.336) beats banks training alone (0.203) and wins on 8
+   of 10 clients. FedProx at μ=0.1 only ties banks-alone (5 of 10 clients).
+2. **DP from scratch learns nothing.** Account-level DP at ε = 1, 3 and 8 is at chance. Measured cause: about
+   75 of a bank's 20,000 accounts have any laundering, so the clipped laundering gradient per step (norm 0.53)
+   is about 450× smaller than the noise (norm 237). The same code with the noise off learns.
+3. **Client-level DP is no better and costs more than its label.** "ε per round" of 1, 3, 8 composes to
+   3.3, 11.0, 36.5 over 10 rounds.
+4. **The deep model matches gradient-boosted trees centrally** (0.523 vs 0.525); FedAvg keeps 64% of that.
+
+Not counted in ε: threshold tuning, hyperparameter choice and best-round selection on validation data;
+per-bank counts and the pooled training laundering rate are treated as public.
+
+Next: Stage A4, public pretraining on IBM LI-Small and DP on the classifier head only
+([plan](docs/superpowers/plans/2026-11-15-stage-a4-public-pretraining-dp-head.md)).
+
 ## Real, measured results
 
 Four models, trained for real, evaluated on one identical held-out test set (6,000

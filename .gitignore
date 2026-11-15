@@ -24,6 +24,8 @@ results/*/*
 !results/*/*.md
 !results/comparison/comparison.json
 !results/comparison/epsilon_sweep.json
+!results/comparison/ibm_hi_small*.json
+!results/pretrain/*.json
 logs/
 checkpoints/
 ray_tmp/

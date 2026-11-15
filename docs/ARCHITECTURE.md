@@ -6,6 +6,48 @@ federated learning framework is wired into this project. For model architecture
 
 ---
 
+## v2 data and privacy unit
+
+Everything below this section describes v1 (PaySim, client-level DP, Paillier).
+Stage A0 of the v2 design
+([spec](superpowers/specs/2026-11-14-federated-fraud-v2-design.md)) replaces the
+data pipeline and the privacy unit. The training entry point is
+`experiments/run_ibm_comparison.py`; results are in
+[STAGE_A0_GATE.md](../results/comparison/STAGE_A0_GATE.md).
+
+1. **Dataset: IBM AML HI-Small.** Each transaction is owned by its sending bank.
+2. **Clients: 10 groups of whole banks**, balanced by transaction count with a
+   deterministic greedy rule (ties go to the lower bank id).
+3. **Split: chronological 60/20/20 with global time cut-offs**, used as built.
+   No re-splitting, no SMOTE.
+4. **Example: one transaction plus the sending account's previous 9 sent
+   transactions**, as a `(batch, 10, F)` tensor with one label. Histories are
+   causal: only earlier rows enter.
+5. **No fitted statistics on private data.** Log transforms with fixed divisors,
+   cyclic time features and one-hot vocabularies from the public schema; no scaler.
+6. **Privacy unit: the sending account.** One transaction appears in up to 10
+   examples through the history window, so per-transaction clipping would not
+   bound its influence. Clipping per account does.
+7. **Mechanism: Poisson sampling of accounts, per-account clipping, Gaussian
+   noise, Rényi accounting per bank across all rounds** (δ=1e-6). Per-example
+   gradients come from `torch.func`; Opacus is used only for accounting.
+8. **Under DP the contrastive and auxiliary heads are frozen** and the loss is
+   weighted BCE, because NT-Xent has no per-account sensitivity bound. (They are
+   frozen for the non-DP deep models too: their zero-weight temperature
+   parameter otherwise decays to 0 under Adam weight decay and produces NaN.)
+9. **FedProx under DP is a decoupled proximal step** after the noisy update; it
+   reads only the current weights and the public global model, so it costs no ε.
+10. **Headline metrics: PR-AUC and recall at 1% FPR.** F1 uses a threshold tuned
+    on validation data.
+
+Caveats the numbers carry: threshold tuning, hyperparameter choice and
+best-round selection on validation data are outside ε; per-bank counts and the
+pooled training fraud rate are treated as public; training uses at most 20,000
+accounts per client (`--max-train-accounts 20000`), which keeps about 97% of
+client 0's training accounts but about 38% of each other client's.
+
+---
+
 ## Privacy/Security Layers
 
 | Layer | Guarantee | Mechanism | Status |
