@@ -111,14 +111,17 @@ def test_initial_model_can_be_selected(tiny3, monkeypatch):
     assert without["selected_round"] in (1, 2)
 
 
-def test_backbone_unchanged_by_finetune(ckpt, tiny3, tmp_path):
-    from experiments.run_dp_finetune import main
+def test_backbone_unchanged_by_finetune(ckpt, tiny3, tmp_path, monkeypatch):
+    import experiments.run_dp_finetune as ft
 
+    loaded = []
+    real_load = ft.load_pretrained
+    monkeypatch.setattr(ft, "load_pretrained", lambda *a, **k: loaded.append(real_load(*a, **k)) or loaded[-1])
     before = copy.deepcopy(torch.load(ckpt, weights_only=False)["state_dict"])
-    out = main(["--ckpt", str(ckpt), "--data-path", str(tiny3 / "data"), "--out", str(tmp_path / "a4.json"), *SMALL])
+    out = ft.main(["--ckpt", str(ckpt), "--data-path", str(tiny3 / "data"), "--out", str(tmp_path / "a4.json"), *SMALL])
     assert set(out["results"]) == {"zero_shot", "head_nodp", "full_nodp", "head_dp_eps8.0"}
-    after = torch.load(ckpt, weights_only=False)["state_dict"]
-    assert all(torch.equal(before[k], after[k]) for k in before)
+    after = loaded[0].state_dict()  # the in-memory backbone every model and embedding was built from
+    assert before.keys() == after.keys() and all(torch.equal(before[k], after[k]) for k in before)
     n_test = out["data"]["pooled"]["test"]["n"]
     for name, res in out["results"].items():
         r = res["seeds"]["0"]

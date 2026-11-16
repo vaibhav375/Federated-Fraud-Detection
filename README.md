@@ -118,7 +118,8 @@ layer (33 parameters) on every HI-Small account. Full write-up:
 [STAGE_A4_GATE.md](results/comparison/STAGE_A4_GATE.md). Reproduce with
 `python3 experiments/build_ibm_aml.py --src <LI-Small_Trans.csv> --out data/ibm_li_small --clients 1`,
 `python3 experiments/pretrain_public.py --epochs 5`, then
-`python3 experiments/run_dp_finetune.py --ckpt checkpoints/pretrain_li_small.pt --epsilons 1 3 8 --seeds 0 1 2 --dp-train last_layer --lr 1e-3`.
+`python3 experiments/run_dp_finetune.py --ckpt checkpoints/pretrain_li_small.pt --epsilons 1 3 8 --seeds 0 1 2 --dp-train last_layer --lr 1e-3 --models zero_shot head_nodp head_dp`,
+then the same with `--models full_nodp --seeds 0` (about 2 h unloaded) and merge the two JSON files.
 
 Same pooled test set; mean ± std over seeds 0–2 (one seed for `full_nodp`).
 
@@ -131,8 +132,9 @@ Same pooled test set; mean ± std over seeds 0–2 (one seed for `full_nodp`).
 | head_dp_eps3.0 | 0.558 ± 0.000 | 0.739 | 0.614 | max 3.00 (account-level) |
 | head_dp_eps8.0 | 0.558 ± 0.000 | 0.739 | 0.614 | max 8.00 (account-level) |
 
-1. **Account-level DP now works.** At ε=8 it keeps 98.8% of the best no-DP federated PR-AUC (0.565), against
-   under 1% in A0, and the curve is flat from ε=1 to ε=8.
+1. **With a public pretrained backbone, account-level DP is nearly free.** At ε=8 the model reaches 0.558,
+   98.8% of the best no-DP federated PR-AUC (0.565), against under 1% in A0; the curve is flat from ε=1 to
+   ε=8. But the pretrained model alone already reaches 0.553, so DP training itself adds only +0.006.
 2. **The gain comes from the public data.** The pretrained model alone (0.553) beats A0's centralized model
    (0.523) on 9 of 10 clients. Private training adds about 0.01 PR-AUC without DP and 0.006 with it.
 3. **Caveat:** LI-Small and HI-Small come from the same simulator, the favourable case for public

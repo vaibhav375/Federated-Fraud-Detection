@@ -28,8 +28,8 @@ A model that ranks at random scores PR-AUC ≈ 0.0018.
 | head_nodp (FedAvg on the head, no DP) | 0.563 ± 0.000 | 0.749 ± 0.001 | 0.615 ± 0.000 | 175 | none |
 | full_nodp (FedAvg on the whole pretrained model, seed 0) | 0.565 | 0.716 | 0.625 | 15430 (machine shared; estimated ~7000 unloaded from A0 fedavg) | none |
 | head_dp_eps1.0 | 0.557 ± 0.000 | 0.739 ± 0.000 | 0.614 | 335 | max 1.00 (account-level) |
-| head_dp_eps3.0 | 0.558 ± 0.000 | 0.739 | 0.614 ± 0.001 | 361 (median) | max 3.00 (account-level) |
-| head_dp_eps8.0 | 0.558 ± 0.000 | 0.739 | 0.614 ± 0.001 | 345 (median) | max 8.00 (account-level) |
+| head_dp_eps3.0 | 0.558 ± 0.000 | 0.739 | 0.614 ± 0.001 | 378 (median) | max 3.00 (account-level) |
+| head_dp_eps8.0 | 0.558 ± 0.000 | 0.739 | 0.614 ± 0.001 | 397 (median) | max 8.00 (account-level) |
 
 Train times for head runs exclude the one-off embedding pass (266 s for all 5,078,345 examples). Two DP
 runs took 4,768 s and 16,712 s because another job saturated the machine; the medians are shown.
@@ -50,7 +50,9 @@ Per client (seed 0, PR-AUC):
 **1. The gate.** Mean `head_dp_eps8.0` PR-AUC is 0.5584 ± 0.0002 (seeds: 0.5586, 0.5585, 0.5583). The bar is
 half of the best no-DP federated PR-AUC, max(A0 fedavg 0.336, head_nodp 0.563, full_nodp 0.565) =
 0.565 (full_nodp), so the bar is 0.283. **Passed**: DP at ε=8 keeps 98.8% of the best no-DP federated
-PR-AUC, against under 1% in A0.
+PR-AUC, against under 1% in A0. Note that the pretrained model with no private training (zero_shot, 0.553)
+already clears this bar by itself, so passing the gate shows that DP no longer destroys the model, not that DP
+training adds much; question 3 measures that.
 
 **2. What pretraining alone gives.** The pretrained model with no private training scores 0.553, above A0
 FedAvg (0.336) and above A0's centralized model trained on HI-Small itself (0.523), and it beats that
@@ -63,7 +65,9 @@ round 10); later rounds do not improve validation. In this setting almost all of
 the public data, not from federated learning on the private data.
 
 **4. The ε curve.** Flat: 0.5571 (ε=1), 0.5582 (ε=3), 0.5584 (ε=8). Recall at 1% FPR is 0.739 at every ε.
-With 33 trained parameters the DP noise is no longer the limit; the frozen embedding is.
+Because the curve does not move between ε=1 and ε=8, more privacy budget does not help here; what limits the
+result is most likely the frozen embedding. (head_nodp trains 1,089 parameters and head_dp 33, so the 0.005 gap
+between them mixes DP noise with the smaller trained set; a no-DP last-layer run would separate the two.)
 
 **5. Overlap between public and private data** (`experiments/check_public_overlap.py`): 0 shared transaction
 rows (6,924,049 public, 5,078,345 private); 3 shared sender account IDs (681,283 public, 496,999 private).
