@@ -116,7 +116,8 @@ The full model is pretrained without DP on IBM LI-Small (public, same schema, no
 HI-Small), then the backbone is frozen and federated account-level DP-SGD trains only the classifier's last
 layer (33 parameters) on every HI-Small account. Full write-up:
 [STAGE_A4_GATE.md](results/comparison/STAGE_A4_GATE.md). Reproduce with
-`python3 experiments/build_ibm_aml.py` for LI-Small, `python3 experiments/pretrain_public.py --epochs 5`, then
+`python3 experiments/build_ibm_aml.py --src <LI-Small_Trans.csv> --out data/ibm_li_small --clients 1`,
+`python3 experiments/pretrain_public.py --epochs 5`, then
 `python3 experiments/run_dp_finetune.py --ckpt checkpoints/pretrain_li_small.pt --epsilons 1 3 8 --seeds 0 1 2 --dp-train last_layer --lr 1e-3`.
 
 Same pooled test set; mean ± std over seeds 0–2 (one seed for `full_nodp`).
