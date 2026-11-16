@@ -4,26 +4,12 @@ import json
 import pytest
 import torch
 
-from helpers import make_raw, small_model_for, write_raw
+from helpers import small_model_for
 
 import experiments.run_ibm_comparison as runner
 
 SMALL = ["--rounds", "1", "--local-epochs", "1", "--batch-size", "16", "--dp-batch-accounts", "4",
          "--delta", "1e-3", "--seeds", "0", "--epsilons", "8"]
-
-
-@pytest.fixture
-def ckpt(tmp_path):
-    """A checkpoint pretrained for one epoch on a separate tiny public set."""
-    from experiments.pretrain_public import main
-    from src.data.ibm_aml import build_dataset
-
-    (tmp_path / "pubraw").mkdir()
-    build_dataset(write_raw(make_raw(seed=5), tmp_path / "pubraw"), tmp_path / "pub", n_clients=1)
-    path = tmp_path / "pre.pt"
-    main(["--data-path", str(tmp_path / "pub"), "--epochs", "1", "--out-ckpt", str(path),
-          "--out-json", str(tmp_path / "pre.json"), "--batch-size", "32"])
-    return path
 
 
 def test_load_pretrained_rejects_feature_mismatch(ckpt):

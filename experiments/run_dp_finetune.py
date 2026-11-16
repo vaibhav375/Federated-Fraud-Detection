@@ -117,14 +117,24 @@ class HeadModel(nn.Module):
             raise ValueError(f"unknown trainable set {which!r}")
 
 
-def embed_clients(backbone, clients) -> dict:
+def embed_clients(backbone, clients, splits=("train", "val", "test")) -> dict:
     """{client: {split: EmbeddingDataset}, plus n_train_accounts} from the frozen backbone."""
     emb = {c: {s: EmbeddingDataset(embed(backbone, clients[c][s]), clients[c][s].example_labels,
-                                   clients[c][s].example_accounts) for s in ("train", "val", "test")}
+                                   clients[c][s].example_accounts) for s in splits}
            for c in clients}
     for c in clients:
         emb[c]["n_train_accounts"] = clients[c]["n_train_accounts"]
     return emb
+
+
+def head_builder(classifier, pos_weight: float, prior: float, which: str):
+    """Builder of the classifier head with the public prior bias and `which` layers trainable."""
+    def build():
+        h = HeadModel(classifier, pos_weight)
+        h.reset_bias(prior)
+        h.set_trainable(which)
+        return h
+    return build
 
 
 def load_settings(path, models, epsilons) -> dict:
@@ -176,13 +186,8 @@ def main(argv=None) -> dict:
     data = summarize(clients)
     prior = data["pooled"]["train"]["fraud"] / max(data["pooled"]["train"]["n"], 1)
 
-    def head_builder(which):
-        def build():
-            h = HeadModel(backbone.classifier, args.pos_weight)
-            h.reset_bias(prior)
-            h.set_trainable(which)
-            return h
-        return build
+    def heads(which):
+        return head_builder(backbone.classifier, args.pos_weight, prior, which)
 
     def full_build():
         m = copy.deepcopy(backbone)
@@ -244,14 +249,14 @@ def main(argv=None) -> dict:
         keep = bool(own.save_scores)
         if "head_nodp" in own.models:
             s = settings["chosen"]["nodp"] if settings else None
-            a, build = (with_settings(args, s), head_builder(s["layers"])) if s else (args, head_builder("classifier"))
+            a, build = (with_settings(args, s), heads(s["layers"])) if s else (args, heads("classifier"))
             results["trained_parameters"]["head_nodp"] = n_trainable(build())
             record("head_nodp", lambda g: run_federated(a, emb, build, g, mu=own.mu, include_initial=True,
                                                         select=select, return_probs=keep), args.seeds)
         if "head_dp" in own.models:
             for e in args.epsilons:
                 s = settings["chosen"][str(float(e))] if settings else None
-                a, build = (with_settings(args, s), head_builder(s["layers"])) if s else (args, head_builder(own.dp_train))
+                a, build = (with_settings(args, s), heads(s["layers"])) if s else (args, heads(own.dp_train))
                 key = f"head_dp_eps{e}" if settings else "head_dp"
                 results["trained_parameters"][key] = n_trainable(build())
                 print(f"{key} trains {results['trained_parameters'][key]} parameters", flush=True)
