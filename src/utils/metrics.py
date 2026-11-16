@@ -24,6 +24,22 @@ def best_f1_threshold(y_true, y_prob) -> float:
     return float(thr[int(np.argmax(f1))])
 
 
+ALERT_BUDGETS = (1000, 5000)
+
+
+def alert_budget_metrics(y_true, y_prob) -> dict:
+    """Precision and recall when only the top-K scores are alerted (K capped at n)."""
+    order = np.argsort(-np.asarray(y_prob, dtype=np.float64), kind="stable")
+    y = np.asarray(y_true).astype(int)
+    out = {}
+    for k in ALERT_BUDGETS:
+        k_eff = min(k, len(y))
+        hits = int(y[order[:k_eff]].sum())
+        out[f"precision_at_{k}"] = hits / k_eff if k_eff else 0.0
+        out[f"recall_at_{k}"] = hits / int(y.sum()) if y.sum() else None
+    return out
+
+
 def fraud_metrics(y_true, y_prob, threshold: float = 0.5) -> dict:
     y_true = np.asarray(y_true).astype(int)
     y_prob = np.asarray(y_prob, dtype=np.float64)
@@ -39,4 +55,5 @@ def fraud_metrics(y_true, y_prob, threshold: float = 0.5) -> dict:
         "recall": float(recall_score(y_true, pred, zero_division=0)),
         "f1": float(f1_score(y_true, pred, zero_division=0)),
         "threshold": float(threshold),
+        **alert_budget_metrics(y_true, y_prob),
     }
