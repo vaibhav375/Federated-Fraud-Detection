@@ -46,6 +46,8 @@ class FlowerSettings:
     clipping_range: float = 16.0
     out_dir: str = "results/flower/run"
     dump_locals: bool = False  # debug only: writes each bank's local model, which defeats SecAgg+
+    ckpt: str | None = None  # head-DP mode: a public pretrained backbone; only the head trains
+    head_train: str = "last_layer"
 
     @property
     def args(self):
@@ -56,6 +58,11 @@ def build_model_for(settings: FlowerSettings):
     """Model builder every node shares. The prior is the pooled train fraud rate from the
     dataset metadata, which the spec treats as public."""
     meta = json.loads((Path(settings.data_path) / "metadata" / "dataset_info.json").read_text())
+    if settings.ckpt:
+        from experiments.run_dp_finetune import head_builder, load_pretrained
+        backbone = load_pretrained(Path(settings.ckpt), meta["num_features"])
+        prior = meta["pooled"]["train"]["fraud"] / meta["pooled"]["train"]["n"]
+        return head_builder(backbone.classifier, settings.args.pos_weight, prior, settings.head_train)
     config = copy.deepcopy(DEFAULT_CONFIG)
     config["dataset"]["num_features"] = meta["num_features"]
     config["training"]["pos_weight"] = settings.args.pos_weight
@@ -93,7 +100,39 @@ def _load_client(data_path: str, client_id: int, cap):
     return load_indexed_client(Path(data_path), client_id, cap, seed=0)
 
 
+def _emb_path(settings: FlowerSettings, client_id: int) -> Path:
+    return Path(settings.out_dir) / "emb" / f"client_{client_id}.pt"
+
+
+def prepare_head_embeddings(settings: FlowerSettings) -> None:
+    """Head-DP mode: embed every client once with the frozen public backbone, uncapped.
+    Simulation shortcut: in deployment each bank embeds its own data with the public backbone."""
+    from experiments.run_dp_finetune import embed_clients, load_pretrained
+    meta = json.loads((Path(settings.data_path) / "metadata" / "dataset_info.json").read_text())
+    backbone = load_pretrained(Path(settings.ckpt), meta["num_features"])
+    for c in range(settings.n_clients):
+        client = load_indexed_client(Path(settings.data_path), c, None, seed=0)
+        emb = embed_clients(backbone, {c: client})[c]
+        path = _emb_path(settings, c)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        torch.save({"n_train_accounts": emb["n_train_accounts"],
+                    **{s: {"emb": emb[s].emb, "labels": emb[s].example_labels, "accounts": emb[s].example_accounts}
+                       for s in ("train", "val", "test")}}, path)
+
+
+@functools.lru_cache(maxsize=1)
+def _load_emb(path: str) -> dict:
+    from experiments.run_dp_finetune import EmbeddingDataset
+    saved = torch.load(path, weights_only=True)
+    out = {s: EmbeddingDataset(saved[s]["emb"], saved[s]["labels"], saved[s]["accounts"])
+           for s in ("train", "val", "test")}
+    out["n_train_accounts"] = int(saved["n_train_accounts"])
+    return out
+
+
 def client_data(settings: FlowerSettings, client_id: int) -> dict:
+    if settings.ckpt:  # head-DP mode: every train account, as A4's DP runs
+        return _load_emb(str(_emb_path(settings, client_id).resolve()))
     return _load_client(settings.data_path, client_id, settings.args.max_train_accounts)
 
 
@@ -116,7 +155,8 @@ class BankClient(NumPyClient):
         if self.s.account_dp_eps is not None:
             # Privacy is accounted server-side from public plan values; this accountant is a sink.
             cfg = AccountDPConfig(self.s.account_dp_eps, args.delta, args.clip_norm,
-                                  args.dp_batch_accounts, args.dp_examples_per_account)
+                                  args.dp_batch_accounts, args.dp_examples_per_account,
+                                  fraud_rows_first=self.s.ckpt is not None)  # head mode matches A4
             account_dp = (cfg, account_dp_plan(args, data["n_train_accounts"], self.s.account_dp_eps),
                           RDPAccountant())
         local_fit(model, data, args, global_params, round_generator(self.s.seed, rnd, self.cid),
@@ -203,7 +243,10 @@ def make_client_app(settings: FlowerSettings) -> ClientApp:
 
 def run(settings: FlowerSettings, rounds: int) -> None:
     out = Path(settings.out_dir).resolve()
-    settings = dataclasses.replace(settings, out_dir=str(out), data_path=str(Path(settings.data_path).resolve()))
+    settings = dataclasses.replace(settings, out_dir=str(out), data_path=str(Path(settings.data_path).resolve()),
+                                   ckpt=str(Path(settings.ckpt).resolve()) if settings.ckpt else None)
+    if settings.ckpt and not all(_emb_path(settings, c).exists() for c in range(settings.n_clients)):
+        prepare_head_embeddings(settings)
     for sub in ("global", "locals"):
         shutil.rmtree(out / sub, ignore_errors=True)
     # Ray workers import this module by reference; they inherit the driver's environment.

@@ -50,3 +50,30 @@ def test_account_dp_rejects_delta_too_large_before_training(tiny3, monkeypatch):
     monkeypatch.setattr(rf, "run", lambda *a, **k: pytest.fail("trained before checking delta"))
     with pytest.raises(SystemExit, match="delta"):
         _run(tiny3, "--account-dp-eps", "8", "--delta", "0.5")
+
+
+HEAD = ["--local-epochs", "1", "--batch-size", "32", "--delta", "1e-3", "--dp-batch-accounts", "4", "--seeded-dp"]
+
+
+def test_run_flower_head_dp_end_to_end(ckpt, tiny3, tmp_path):
+    settings = tmp_path / "settings.json"
+    settings.write_text(json.dumps({"chosen": {"8.0": {"lr": 0.003, "layers": "classifier", "rounds": 2}}}))
+    out = tmp_path / "head.json"
+    rf.main(["--data-path", str(tiny3 / "data"), "--out", str(out), "--work-dir", str(tmp_path / "run"),
+             "--ckpt", str(ckpt), "--settings", str(settings), "--account-dp-eps", "8",
+             "--debug-dump-locals", *HEAD])
+    r = json.loads(out.read_text())
+    assert r["mode"] == "head_dp" and r["head_train"] == "classifier" and r["rounds"] == 2
+    assert r["selection"] == "fixed_rounds" and r["dp_randomness"] == "seeded"
+    assert len(r["aggregation_errors"]) == 2 and max(r["aggregation_errors"]) <= r["error_bound"]
+    assert all(p["epsilon_spent"] <= 8.0 + 1e-6 for p in r["privacy"].values())
+    assert r["metrics"]["pooled"]["pr_auc"] is not None
+
+
+def test_run_flower_settings_missing_level_exits(ckpt, tiny3, tmp_path):
+    settings = tmp_path / "settings.json"
+    settings.write_text(json.dumps({"chosen": {"8.0": {"lr": 0.003, "layers": "classifier", "rounds": 2}}}))
+    with pytest.raises(SystemExit, match="3.0"):
+        rf.main(["--data-path", str(tiny3 / "data"), "--out", str(tmp_path / "x.json"), "--work-dir",
+                 str(tmp_path / "run"), "--ckpt", str(ckpt), "--settings", str(settings),
+                 "--account-dp-eps", "3", *HEAD])

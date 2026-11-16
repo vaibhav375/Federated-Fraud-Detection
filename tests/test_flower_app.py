@@ -182,3 +182,38 @@ def test_run_requires_every_round_aggregate(tiny3, monkeypatch):
     monkeypatch.setattr(flower_app, "run_simulation", only_last_round)
     with pytest.raises(RuntimeError, match="round 1"):
         flower_app.run(s, 2)
+
+
+HEAD_ARGS = ["--local-epochs", "1", "--batch-size", "32", "--delta", "1e-3", "--dp-batch-accounts", "4",
+             "--seeded-dp"]
+
+
+def _head_settings(tiny3, ckpt, **kw):
+    from src.federated.flower_app import FlowerSettings, prepare_head_embeddings
+    s = FlowerSettings(data_path=str(tiny3 / "data"), run_args=kw.pop("run_args", HEAD_ARGS), n_clients=3,
+                       out_dir=str(tiny3 / "run"), ckpt=str(ckpt), **kw)
+    prepare_head_embeddings(s)
+    return s
+
+
+def test_head_mode_trains_only_head(ckpt, tiny3):
+    from src.federated.flower_app import BankClient
+
+    client = BankClient(_head_settings(tiny3, ckpt, account_dp_eps=8.0), 0)
+    arrays, n, _ = client.fit(client.get_parameters({}), {"server_round": 1})
+    assert len(arrays) == 2 and sum(a.size for a in arrays) == 33  # the last layer's weight and bias
+    assert all(np.isfinite(a).all() for a in arrays) and n > 0
+
+
+def test_head_mode_no_cap_and_fraud_rows_first(ckpt, tiny3, monkeypatch):
+    import src.federated.flower_app as fa
+    from src.data.sequences import load_indexed_client
+
+    s = _head_settings(tiny3, ckpt, account_dp_eps=8.0, run_args=HEAD_ARGS + ["--max-train-accounts", "5"])
+    for c in range(3):
+        assert fa.client_data(s, c)["n_train_accounts"] == load_indexed_client(tiny3 / "data", c)["n_train_accounts"]
+    seen = []
+    monkeypatch.setattr(fa, "local_fit", lambda *a, account_dp=None, **k: seen.append(account_dp[0]))
+    client = fa.BankClient(s, 1)
+    client.fit(client.get_parameters({}), {"server_round": 1})
+    assert seen[0].fraud_rows_first is True

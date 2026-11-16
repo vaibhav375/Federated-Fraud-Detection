@@ -2,6 +2,12 @@
 
     python3 experiments/run_flower.py [--rounds 10] [--account-dp-eps 8] [--no-secagg]
         [--debug-dump-locals] [any run_ibm_comparison.py training flag]
+        [--ckpt PRETRAINED.pt [--head-train last_layer|classifier] [--settings tuned.json]]
+
+--ckpt switches to head-DP mode (Stage H): banks embed their data with the frozen public backbone
+and train only the classifier head, every train account, fraud rows first (as A4). With
+--settings, lr, rounds and head layers come from the tuned file (the --account-dp-eps level, or
+"nodp") and the model after the last round is reported.
 
 With --debug-dump-locals each round's aggregate is checked against the plain
 weighted average of the banks' local models (debug only: the dumps defeat SecAgg+).
@@ -15,13 +21,17 @@ import time
 from pathlib import Path
 
 import numpy as np
+import torch
 from opacus.accountants import RDPAccountant
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from experiments.run_ibm_comparison import account_dp_plan, evaluate_split, select_and_test, val_pr_auc  # noqa: E402
+from experiments.run_ibm_comparison import (account_dp_plan, evaluate_split, evaluate_state,  # noqa: E402
+                                            select_and_test, val_pr_auc)
+from src.federated.dp_random import make_dp_random  # noqa: E402
 from src.federated.flower_app import (FlowerSettings, aggregation_errors, build_model_for,  # noqa: E402
+                                      prepare_head_embeddings,
                                       client_data, client_sizes, initial_model, run,
                                       secagg_error_bound, set_trainable)
 
@@ -37,8 +47,21 @@ def parse(argv):
     p.add_argument("--no-secagg", action="store_true")
     p.add_argument("--debug-dump-locals", action="store_true")
     p.add_argument("--clipping-range", type=float, default=16.0)
+    p.add_argument("--ckpt", default=None)
+    p.add_argument("--head-train", default="last_layer", choices=["last_layer", "classifier"])
+    p.add_argument("--settings", default=None)
     args, rest = p.parse_known_args(argv)
-    if not any(x == "--max-train-accounts" or x.startswith("--max-train-accounts=") for x in rest):
+    args.tuned = None
+    if args.settings:
+        key = "nodp" if args.account_dp_eps is None else str(float(args.account_dp_eps))
+        chosen = json.loads(Path(args.settings).read_text()).get("chosen", {})
+        if key not in chosen:
+            raise SystemExit(f"tuned settings have no entry for {key}")
+        args.tuned = chosen[key]
+        args.rounds, args.head_train = args.tuned["rounds"], args.tuned["layers"]
+        rest += ["--lr", str(args.tuned["lr"])]
+    if args.ckpt is None and not any(x == "--max-train-accounts" or x.startswith("--max-train-accounts=")
+                                     for x in rest):
         rest += ["--max-train-accounts", "20000"]
     return args, rest + ["--rounds", str(args.rounds)]  # DP noise is calibrated to the round count
 
@@ -61,7 +84,9 @@ def main(argv=None) -> dict:
     meta = json.loads((Path(a.data_path) / "metadata" / "dataset_info.json").read_text())
     s = FlowerSettings(data_path=a.data_path, run_args=run_args, n_clients=meta["n_clients"], seed=a.seed,
                        account_dp_eps=a.account_dp_eps, secagg=not a.no_secagg, clipping_range=a.clipping_range,
-                       out_dir=a.work_dir, dump_locals=a.debug_dump_locals)
+                       out_dir=a.work_dir, dump_locals=a.debug_dump_locals, ckpt=a.ckpt, head_train=a.head_train)
+    if s.ckpt:
+        prepare_head_embeddings(s)  # always fresh: a work dir may hold another backbone's embeddings
     if s.account_dp_eps is not None:
         smallest = min(client_data(s, c)["n_train_accounts"] for c in range(s.n_clients))
         if s.args.delta >= 1.0 / smallest:
@@ -86,7 +111,11 @@ def main(argv=None) -> dict:
         "rounds": a.rounds, "round_seconds": [round(t1 - t0, 2) for t0, t1 in zip(stamps, stamps[1:])],
         "aggregation_errors": aggregation_errors(a.work_dir, client_sizes(s), a.rounds) if s.dump_locals else None,
         "error_bound": secagg_error_bound(s.n_clients, s.clipping_range) if s.secagg else 1e-5,
-        "metrics": select_and_test(states, clients, build),
+        "metrics": (evaluate_state(states[-1][1], clients, build) if a.tuned
+                    else select_and_test(states, clients, build)),
+        "selection": "fixed_rounds" if a.tuned else "val",
+        "mode": "head_dp" if s.ckpt else "full", "ckpt": s.ckpt, "head_train": s.head_train if s.ckpt else None,
+        "tuned": a.tuned, "dp_randomness": make_dp_random(s.args, torch.Generator()).name,
         "privacy": privacy_report(s, clients) if s.account_dp_eps is not None else None,
     }
     out = Path(a.out)
