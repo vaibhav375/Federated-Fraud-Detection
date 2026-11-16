@@ -1,6 +1,7 @@
 """Build the indexed IBM AML dataset: one time-sorted table per bank group.
 
     python3 experiments/build_ibm_aml.py [--src RAW.csv] [--out data/ibm_hi_small] [--clients 10]
+        [--source ibm|saml_d|amlsim] [--group-by bank|account_hash]
 
 The raw file path defaults to $IBM_AML_RAW, else the project drive's copy.
 """
@@ -23,9 +24,13 @@ def main(argv=None):
     p.add_argument("--src", default=DEFAULT_RAW)
     p.add_argument("--out", default=str(ROOT / "data" / "ibm_hi_small"))
     p.add_argument("--clients", type=int, default=10)
+    p.add_argument("--source", default="ibm", choices=["ibm", "saml_d", "amlsim"])
+    p.add_argument("--group-by", default="bank", choices=["bank", "account_hash"])
     args = p.parse_args(argv)
-    meta = build_dataset(Path(args.src), Path(args.out), n_clients=args.clients)
-    print(f"{meta['n_banks']} banks -> {args.clients} clients")
+    meta = build_dataset(Path(args.src), Path(args.out), n_clients=args.clients,
+                         source=args.source, group_by=args.group_by)
+    print(f"{meta['n_banks']} {'banks' if args.group_by == 'bank' else 'accounts'} -> {args.clients} clients; "
+          f"unknown categories {meta['unknown_categories']}")
     print(f"{'client':>6} {'split':>5} {'n':>10} {'fraud':>7} {'rate':>8} {'accounts':>9}")
     for c, splits in list(meta["clients"].items()) + [("all", meta["pooled"])]:
         for s, v in splits.items():

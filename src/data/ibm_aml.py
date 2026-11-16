@@ -140,7 +140,10 @@ def _split_stats(labels: np.ndarray, accounts: np.ndarray, split: np.ndarray) ->
     return out
 
 
-def build_dataset(csv_path: Path, out_dir: Path, n_clients: int = 10, k: int = K_HISTORY) -> dict:
+def build_dataset(csv_path: Path, out_dir: Path, n_clients: int = 10, k: int = K_HISTORY,
+                  source: str = "ibm", group_by: str = "bank") -> dict:
+    """source: ibm | saml_d | amlsim. group_by: bank (greedy bank grouping) or account_hash
+    (sending account code mod n_clients, for data without real banks)."""
     import json
 
     import torch
@@ -148,17 +151,30 @@ def build_dataset(csv_path: Path, out_dir: Path, n_clients: int = 10, k: int = K
     from src.data.sequences import build_history_index
 
     out_dir = Path(out_dir)
-    df = load_transactions(csv_path)
+    if source == "ibm":
+        df = load_transactions(csv_path)
+    else:
+        from src.data.public_sources import load_amlsim, load_saml_d
+        df = {"saml_d": load_saml_d, "amlsim": load_amlsim}[source](csv_path)
+    unknown = df.attrs.get("unknown", {"pay_currency": 0, "recv_currency": 0, "pay_format": 0})
     feats = encode_features(df)
     split = time_split(df["ts"].to_numpy())
     labels = df["label"].to_numpy().astype(np.int64)
     accounts = df["from_acct"].to_numpy().astype(np.int64)
-    bank_to_client = assign_banks_to_clients(df.groupby("from_bank").size(), n_clients)
-    client = df["from_bank"].map(bank_to_client).to_numpy()
+    if group_by == "bank":
+        bank_to_client = assign_banks_to_clients(df.groupby("from_bank").size(), n_clients)
+        client = df["from_bank"].map(bank_to_client).to_numpy()
+        n_groups = len(bank_to_client)
+    elif group_by == "account_hash":
+        bank_to_client, client = {}, df["from_acct"].to_numpy() % n_clients
+        n_groups = int(df["from_acct"].nunique())  # each sending account is its own group
+    else:
+        raise ValueError(f"unknown group_by {group_by!r}")
 
     meta = {"format": "indexed_v1", "source": str(csv_path), "num_features": NUM_FEATURES,
             "feature_names": FEATURE_NAMES, "k_history": k, "n_clients": n_clients,
-            "n_banks": len(bank_to_client),
+            "n_banks": n_groups, "source_format": source, "group_by": group_by,
+            "unknown_categories": unknown,
             "bank_to_client": {str(b): int(c) for b, c in bank_to_client.items()}, "clients": {}}
     for c in range(n_clients):
         idx = np.nonzero(client == c)[0]  # stays in time order
