@@ -103,15 +103,24 @@ def final_metrics(val_probs, test_probs, clients) -> dict:
                            for c in clients}}
 
 
-def select_and_test(states, clients, build_model) -> dict:
-    """states: list of (val_score, {client: state_dict}) - pick best by val, test once."""
-    _, best = max(states, key=lambda s: s[0])
+def evaluate_state(state, clients, build_model, return_probs=False) -> dict:
+    """Metrics of one saved {client: state_dict}; threshold from its validation scores."""
     models = {}
     for c in clients:
         m = build_model()
-        m.load_state_dict(best[c])
+        m.load_state_dict(state[c])
         models[c] = m
-    return final_metrics(evaluate_split(models, clients, "val"), evaluate_split(models, clients, "test"), clients)
+    test_probs = evaluate_split(models, clients, "test")
+    metrics = final_metrics(evaluate_split(models, clients, "val"), test_probs, clients)
+    if return_probs:
+        metrics["test_probs"] = test_probs
+    return metrics
+
+
+def select_and_test(states, clients, build_model) -> dict:
+    """states: list of (val_score, {client: state_dict}) - pick best by val, test once."""
+    _, best = max(states, key=lambda s: s[0])
+    return evaluate_state(best, clients, build_model)
 
 
 # ---------------------------------------------------------------- models
@@ -253,11 +262,13 @@ def local_fit(model, client, args, global_params, generator, *, mu, account_dp=N
 
 
 def run_federated(args, clients, build_model, g, *, mu, client_dp_eps=None, account_dp_eps=None,
-                  include_initial=False):
+                  include_initial=False, select="val", return_probs=False):
     """FedAvg/FedProx with all clients each round; optional client-level or account-level DP.
 
     include_initial: the starting model is scored on validation as round 0 and can be selected,
-    so fine-tuning a pretrained model is only kept when it helps."""
+    so fine-tuning a pretrained model is only kept when it helps.
+    select: "val" reports the round with the best validation PR-AUC; "last" reports the model
+    after args.rounds (settings fixed in advance), plus what "val" would have picked, for comparison."""
     global_model = build_model()
     sizes = {c: len(clients[c]["train"]) for c in clients}
     privacy, dp_plan, client_acc = None, {}, None
@@ -307,10 +318,18 @@ def run_federated(args, clients, build_model, g, *, mu, client_dp_eps=None, acco
                    for c, d in dp_plan.items()}
     if client_acc is not None:
         privacy = client_acc.cumulative()
-    metrics = select_and_test(states, clients, build_model)
     best = max(range(len(states)), key=lambda i: states[i][0])  # same first-maximum rule as select_and_test
-    metrics["selected_round"] = best + (0 if include_initial else 1)
-    metrics["val_pr_auc"] = states[best][0]
+    best_round = best + (0 if include_initial else 1)
+    if select == "val":
+        metrics = evaluate_state(states[best][1], clients, build_model, return_probs)
+        metrics["selected_round"], metrics["val_pr_auc"] = best_round, states[best][0]
+    elif select == "last":
+        metrics = evaluate_state(states[-1][1], clients, build_model, return_probs)
+        metrics["selected_round"], metrics["val_pr_auc"] = args.rounds, states[-1][0]
+        metrics["val_selected"] = {"round": best_round, "val_pr_auc": states[best][0],
+                                   "pooled": evaluate_state(states[best][1], clients, build_model)["pooled"]}
+    else:
+        raise ValueError(f"unknown select {select!r}")
     return metrics, privacy
 
 

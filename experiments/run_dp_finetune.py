@@ -3,7 +3,12 @@
     python3 experiments/run_dp_finetune.py --ckpt checkpoints/pretrain_li_small.pt
         [--models zero_shot head_nodp full_nodp head_dp] [--dp-train classifier|last_layer]
         [--mu 0] [--out results/comparison/ibm_hi_small_a4.json]
+        [--settings tuned.json] [--save-scores DIR]
         [any flag of run_ibm_comparison.py: --epsilons --seeds --rounds --lr --delta ...]
+
+--settings  head runs take lr, rounds and trained layers from a tune_public.py file (per epsilon,
+            and "nodp" for head_nodp) and report the model after exactly those rounds: nothing is
+            selected on the private validation split. Without it, A4's validation selection applies.
 
 zero_shot  the pretrained model as is; it never trains on the private data
 head_nodp  FedAvg on the classifier head only, no DP
@@ -35,6 +40,7 @@ sys.path.insert(0, str(ROOT))
 from experiments.run_ibm_comparison import (SCORE_BATCH, evaluate_split, final_metrics, mean_std,  # noqa: E402
                                             parse_args, run_federated, summarize, val_pr_auc)
 from src.data.sequences import load_indexed_client  # noqa: E402
+from src.federated.dp_random import make_dp_random  # noqa: E402
 from src.federated.dp_sgd import freeze_non_dp_heads  # noqa: E402
 from src.models.temporal_graph_transformer import TemporalGraphTransformer  # noqa: E402
 
@@ -111,6 +117,33 @@ class HeadModel(nn.Module):
             raise ValueError(f"unknown trainable set {which!r}")
 
 
+def embed_clients(backbone, clients) -> dict:
+    """{client: {split: EmbeddingDataset}, plus n_train_accounts} from the frozen backbone."""
+    emb = {c: {s: EmbeddingDataset(embed(backbone, clients[c][s]), clients[c][s].example_labels,
+                                   clients[c][s].example_accounts) for s in ("train", "val", "test")}
+           for c in clients}
+    for c in clients:
+        emb[c]["n_train_accounts"] = clients[c]["n_train_accounts"]
+    return emb
+
+
+def load_settings(path, models, epsilons) -> dict:
+    """The tuned file's {"chosen": ...}; exits before any training if a needed level is missing."""
+    settings = json.loads(Path(path).read_text())
+    needed = (["nodp"] if "head_nodp" in models else []) + \
+             ([str(float(e)) for e in epsilons] if "head_dp" in models else [])
+    for key in needed:
+        if key not in settings.get("chosen", {}):
+            raise SystemExit(f"tuned settings have no entry for {key}")
+    return settings
+
+
+def with_settings(args, s):
+    a = copy.copy(args)
+    a.lr, a.rounds = s["lr"], s["rounds"]  # DP noise is calibrated to a.rounds
+    return a
+
+
 def n_trainable(model) -> int:
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
@@ -122,8 +155,12 @@ def main(argv=None) -> dict:
     p.add_argument("--dp-train", default="classifier", choices=["classifier", "last_layer"])
     p.add_argument("--mu", type=float, default=0.0)
     p.add_argument("--out", default=str(ROOT / "results" / "comparison" / "ibm_hi_small_a4.json"))
+    p.add_argument("--settings", default=None)
+    p.add_argument("--save-scores", default=None)
     own, rest = p.parse_known_args(argv)
     args = parse_args(rest)
+    settings = load_settings(own.settings, own.models, args.epsilons) if own.settings else None
+    select = "last" if settings else "val"
     args.mu, args.out, args.max_train_accounts = own.mu, own.out, None  # DP and head runs use every account
     args.dp_fraud_rows_first = True
     data_path = Path(args.data_path)
@@ -157,7 +194,9 @@ def main(argv=None) -> dict:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     results = {"dataset": meta.get("source"), "args": vars(args), "data": data, "results": {},
                "pretrained": {"ckpt": own.ckpt, "num_features": meta["num_features"]},
-               "dp_train": own.dp_train, "trained_parameters": {}}
+               "dp_train": own.dp_train, "trained_parameters": {},
+               "selection": "fixed_rounds" if settings else "val", "settings": settings,
+               "dp_randomness": make_dp_random(args, torch.Generator()).name}
 
     def record(name, fn, seeds):
         per_seed = {}
@@ -166,6 +205,11 @@ def main(argv=None) -> dict:
             np.random.seed(seed)
             t0 = time.time()
             metrics, privacy = fn(torch.Generator().manual_seed(seed))
+            probs = metrics.pop("test_probs", None)
+            if own.save_scores and probs is not None:
+                Path(own.save_scores).mkdir(parents=True, exist_ok=True)
+                np.savez(Path(own.save_scores) / f"{name}_seed{seed}.npz",
+                         **{f"client_{c}": np.asarray(v) for c, v in probs.items()})
             per_seed[str(seed)] = {**metrics, "privacy": privacy, "train_seconds": round(time.time() - t0, 1)}
             pm = metrics["pooled"]
             print(f"[{name} seed={seed}] pr_auc={pm['pr_auc']} recall@1%fpr={pm['recall_at_1pct_fpr']} "
@@ -193,26 +237,27 @@ def main(argv=None) -> dict:
 
     if {"head_nodp", "head_dp"} & set(own.models):
         t0 = time.time()
-        emb = {c: {s: EmbeddingDataset(embed(backbone, clients[c][s]), clients[c][s].example_labels,
-                                       clients[c][s].example_accounts) for s in ("train", "val", "test")}
-               for c in clients}
-        for c in clients:
-            emb[c]["n_train_accounts"] = clients[c]["n_train_accounts"]
+        emb = embed_clients(backbone, clients)
         del clients
         print(f"embedded {sum(len(emb[c][s]) for c in emb for s in ('train', 'val', 'test'))} examples "
               f"in {time.time() - t0:.0f}s", flush=True)
+        keep = bool(own.save_scores)
         if "head_nodp" in own.models:
-            build = head_builder("classifier")
+            s = settings["chosen"]["nodp"] if settings else None
+            a, build = (with_settings(args, s), head_builder(s["layers"])) if s else (args, head_builder("classifier"))
             results["trained_parameters"]["head_nodp"] = n_trainable(build())
-            record("head_nodp", lambda g: run_federated(args, emb, build, g, mu=own.mu, include_initial=True),
-                   args.seeds)
+            record("head_nodp", lambda g: run_federated(a, emb, build, g, mu=own.mu, include_initial=True,
+                                                        select=select, return_probs=keep), args.seeds)
         if "head_dp" in own.models:
-            build = head_builder(own.dp_train)
-            results["trained_parameters"]["head_dp"] = n_trainable(build())
-            print(f"head_dp trains {results['trained_parameters']['head_dp']} parameters ({own.dp_train})", flush=True)
             for e in args.epsilons:
-                record(f"head_dp_eps{e}", lambda g, e=e: run_federated(
-                    args, emb, build, g, mu=own.mu, account_dp_eps=e, include_initial=True), args.seeds)
+                s = settings["chosen"][str(float(e))] if settings else None
+                a, build = (with_settings(args, s), head_builder(s["layers"])) if s else (args, head_builder(own.dp_train))
+                key = f"head_dp_eps{e}" if settings else "head_dp"
+                results["trained_parameters"][key] = n_trainable(build())
+                print(f"{key} trains {results['trained_parameters'][key]} parameters", flush=True)
+                record(f"head_dp_eps{e}", lambda g, a=a, build=build, e=e: run_federated(
+                    a, emb, build, g, mu=own.mu, account_dp_eps=e, include_initial=True,
+                    select=select, return_probs=keep), args.seeds)
     out_path.write_text(json.dumps(results, indent=2))
     return results
 

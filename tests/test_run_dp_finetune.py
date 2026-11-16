@@ -147,3 +147,82 @@ def test_dp_accounting_uses_uncapped_accounts(ckpt, tiny3, tmp_path, monkeypatch
     with pytest.raises(SystemExit, match="delta"):
         ft.main(["--ckpt", str(ckpt), "--data-path", str(tiny3 / "data"), "--out", str(tmp_path / "b.json"),
                  *SMALL, "--models", "head_dp", "--delta", "0.5"])
+
+
+def test_fixed_rounds_reports_last_round(tiny3, monkeypatch):
+    from src.data.sequences import load_indexed_client
+
+    clients = {c: load_indexed_client(tiny3 / "data", c) for c in range(3)}
+    args = runner.parse_args(["--data-path", str(tiny3 / "data"), *SMALL, "--rounds", "2"])
+    build = lambda: small_model_for(clients[0])  # noqa: E731
+
+    def wreck(model, *a, **k):
+        with torch.no_grad():
+            for p in model.parameters():
+                p.zero_()
+    monkeypatch.setattr(runner, "local_fit", wreck)
+    metrics, _ = runner.run_federated(args, clients, build, torch.Generator().manual_seed(0), mu=0.0,
+                                      include_initial=True, select="last")
+    wrecked = build()
+    wreck(wrecked)
+    last = runner.select_and_test([(0.0, {c: runner.snapshot(wrecked) for c in clients})], clients, build)
+    initial = runner.select_and_test([(0.0, {c: runner.snapshot(build()) for c in clients})], clients, build)
+    assert metrics["selected_round"] == 2
+    assert metrics["pooled"]["pr_auc"] == last["pooled"]["pr_auc"]
+    assert metrics["val_selected"]["round"] == 0
+    assert metrics["val_selected"]["pooled"]["pr_auc"] == initial["pooled"]["pr_auc"]
+
+
+def _settings_file(tmp_path, chosen):
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"chosen": chosen}))
+    return str(path)
+
+
+SETTINGS = {"8.0": {"lr": 0.003, "layers": "classifier", "rounds": 2},
+            "nodp": {"lr": 0.001, "layers": "last_layer", "rounds": 1}}
+
+
+def test_settings_applied_per_level(ckpt, tiny3, tmp_path):
+    import math
+
+    import experiments.run_dp_finetune as ft
+
+    out = ft.main(["--ckpt", str(ckpt), "--data-path", str(tiny3 / "data"), "--out", str(tmp_path / "a.json"),
+                   *SMALL, "--seeded-dp", "--models", "head_nodp", "head_dp",
+                   "--settings", _settings_file(tmp_path, SETTINGS)])
+    priv = out["results"]["head_dp_eps8.0"]["seeds"]["0"]["privacy"]
+    for p in priv.values():
+        assert p["steps"] == 2 * math.ceil(1 / min(1.0, 4 / p["n_accounts"]))
+        assert p["epsilon_spent"] <= 8.0 + 1e-6
+    assert out["trained_parameters"]["head_dp_eps8.0"] == 1089
+    assert out["trained_parameters"]["head_nodp"] == 33
+    assert out["selection"] == "fixed_rounds" and out["settings"] == {"chosen": SETTINGS}
+    assert out["results"]["head_dp_eps8.0"]["seeds"]["0"]["selected_round"] == 2
+    assert out["results"]["head_nodp"]["seeds"]["0"]["selected_round"] == 1
+    assert out["dp_randomness"] == "seeded"
+
+
+def test_settings_missing_level_exits(ckpt, tiny3, tmp_path, monkeypatch):
+    import experiments.run_dp_finetune as ft
+
+    monkeypatch.setattr(ft, "run_federated", lambda *a, **k: pytest.fail("trained before checking settings"))
+    with pytest.raises(SystemExit, match="3.0"):
+        ft.main(["--ckpt", str(ckpt), "--data-path", str(tiny3 / "data"), "--out", str(tmp_path / "a.json"),
+                 *SMALL, "--epsilons", "3", "--models", "head_dp", "--settings", _settings_file(tmp_path, SETTINGS)])
+
+
+def test_save_scores(ckpt, tiny3, tmp_path):
+    import numpy as np
+
+    import experiments.run_dp_finetune as ft
+    from src.data.sequences import load_indexed_client
+
+    out = ft.main(["--ckpt", str(ckpt), "--data-path", str(tiny3 / "data"), "--out", str(tmp_path / "a.json"),
+                   *SMALL, "--seeded-dp", "--models", "head_dp", "--settings", _settings_file(tmp_path, SETTINGS),
+                   "--save-scores", str(tmp_path / "scores")])
+    saved = np.load(tmp_path / "scores" / "head_dp_eps8.0_seed0.npz")
+    assert sorted(saved.files) == ["client_0", "client_1", "client_2"]
+    for c in range(3):
+        assert len(saved[f"client_{c}"]) == len(load_indexed_client(tiny3 / "data", c)["test"])
+    assert "test_probs" not in out["results"]["head_dp_eps8.0"]["seeds"]["0"]
