@@ -1,0 +1,243 @@
+{
+  "settings": {
+    "data_path": "/Volumes/Untitled/capstone_files/Federated-Fraud-Detection/data/ibm_hi_small",
+    "run_args": [
+      "--max-train-accounts",
+      "20000",
+      "--rounds",
+      "10"
+    ],
+    "n_clients": 10,
+    "seed": 0,
+    "account_dp_eps": 8.0,
+    "secagg": true,
+    "clipping_range": 16.0,
+    "out_dir": "/Users/vaibhav/capstone_runs/b1_run_dp8",
+    "dump_locals": true
+  },
+  "secagg": true,
+  "debug_dump_locals": true,
+  "rounds": 10,
+  "round_seconds": [
+    619.09,
+    575.99,
+    584.57,
+    561.15,
+    507.69,
+    385.63,
+    399.54,
+    410.62,
+    597.46,
+    646.06
+  ],
+  "aggregation_errors": [
+    9.524824411841215e-06,
+    8.138608352747934e-06,
+    8.283468189378747e-06,
+    8.524812943544013e-06,
+    9.674174977207517e-06,
+    8.466716612538783e-06,
+    9.155361133536544e-06,
+    8.466673461667018e-06,
+    9.000077795626171e-06,
+    8.394505093739513e-06
+  ],
+  "error_bound": 7.72939453125e-05,
+  "metrics": {
+    "pooled": {
+      "n": 1015882,
+      "n_fraud": 1798,
+      "pr_auc": 0.0013532258156984732,
+      "roc_auc": 0.38965473508042653,
+      "recall_at_1pct_fpr": 0.0055617352614015575,
+      "precision": 0.0024019215372297837,
+      "recall": 0.0016685205784204673,
+      "f1": 0.001969149983590417,
+      "threshold": 0.0007564944680780172
+    },
+    "per_client": {
+      "0": {
+        "n": 109127,
+        "n_fraud": 148,
+        "pr_auc": 0.0013565368810695142,
+        "roc_auc": 0.49133861768061937,
+        "recall_at_1pct_fpr": 0.013513513513513514,
+        "precision": 0.0024019215372297837,
+        "recall": 0.02027027027027027,
+        "f1": 0.004294917680744453,
+        "threshold": 0.0007564944680780172
+      },
+      "1": {
+        "n": 100940,
+        "n_fraud": 200,
+        "pr_auc": 0.0017625105853056357,
+        "roc_auc": 0.39796396664681355,
+        "recall_at_1pct_fpr": 0.015,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "threshold": 0.0007564944680780172
+      },
+      "2": {
+        "n": 100789,
+        "n_fraud": 159,
+        "pr_auc": 0.0012243106323317913,
+        "roc_auc": 0.39236789359113056,
+        "recall_at_1pct_fpr": 0.012578616352201259,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "threshold": 0.0007564944680780172
+      },
+      "3": {
+        "n": 100850,
+        "n_fraud": 222,
+        "pr_auc": 0.0018796943951691176,
+        "roc_auc": 0.44576534588012506,
+        "recall_at_1pct_fpr": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "threshold": 0.0007564944680780172
+      },
+      "4": {
+        "n": 100994,
+        "n_fraud": 180,
+        "pr_auc": 0.0013253788663092805,
+        "roc_auc": 0.3767595109144894,
+        "recall_at_1pct_fpr": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "threshold": 0.0007564944680780172
+      },
+      "5": {
+        "n": 100808,
+        "n_fraud": 161,
+        "pr_auc": 0.0012759754700991618,
+        "roc_auc": 0.3363608261998287,
+        "recall_at_1pct_fpr": 0.006211180124223602,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "threshold": 0.0007564944680780172
+      },
+      "6": {
+        "n": 101178,
+        "n_fraud": 214,
+        "pr_auc": 0.0015082115588601489,
+        "roc_auc": 0.3533128491806277,
+        "recall_at_1pct_fpr": 0.004672897196261682,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "threshold": 0.0007564944680780172
+      },
+      "7": {
+        "n": 100299,
+        "n_fraud": 176,
+        "pr_auc": 0.0013203785290790177,
+        "roc_auc": 0.38576437345701153,
+        "recall_at_1pct_fpr": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "threshold": 0.0007564944680780172
+      },
+      "8": {
+        "n": 100385,
+        "n_fraud": 189,
+        "pr_auc": 0.001450071249116566,
+        "roc_auc": 0.39130610880980154,
+        "recall_at_1pct_fpr": 0.005291005291005291,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "threshold": 0.0007564944680780172
+      },
+      "9": {
+        "n": 100512,
+        "n_fraud": 149,
+        "pr_auc": 0.0009777186081127225,
+        "roc_auc": 0.30764887217788695,
+        "recall_at_1pct_fpr": 0.006711409395973154,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "threshold": 0.0007564944680780172
+      }
+    }
+  },
+  "privacy": {
+    "0": {
+      "epsilon_spent": 7.993584761689701,
+      "sigma": 0.7354736328125,
+      "sample_rate": 0.0128,
+      "n_accounts": 20000,
+      "steps": 1580
+    },
+    "1": {
+      "epsilon_spent": 7.993584761689701,
+      "sigma": 0.7354736328125,
+      "sample_rate": 0.0128,
+      "n_accounts": 20000,
+      "steps": 1580
+    },
+    "2": {
+      "epsilon_spent": 7.993584761689701,
+      "sigma": 0.7354736328125,
+      "sample_rate": 0.0128,
+      "n_accounts": 20000,
+      "steps": 1580
+    },
+    "3": {
+      "epsilon_spent": 7.993584761689701,
+      "sigma": 0.7354736328125,
+      "sample_rate": 0.0128,
+      "n_accounts": 20000,
+      "steps": 1580
+    },
+    "4": {
+      "epsilon_spent": 7.993584761689701,
+      "sigma": 0.7354736328125,
+      "sample_rate": 0.0128,
+      "n_accounts": 20000,
+      "steps": 1580
+    },
+    "5": {
+      "epsilon_spent": 7.993584761689701,
+      "sigma": 0.7354736328125,
+      "sample_rate": 0.0128,
+      "n_accounts": 20000,
+      "steps": 1580
+    },
+    "6": {
+      "epsilon_spent": 7.993584761689701,
+      "sigma": 0.7354736328125,
+      "sample_rate": 0.0128,
+      "n_accounts": 20000,
+      "steps": 1580
+    },
+    "7": {
+      "epsilon_spent": 7.993584761689701,
+      "sigma": 0.7354736328125,
+      "sample_rate": 0.0128,
+      "n_accounts": 20000,
+      "steps": 1580
+    },
+    "8": {
+      "epsilon_spent": 7.993584761689701,
+      "sigma": 0.7354736328125,
+      "sample_rate": 0.0128,
+      "n_accounts": 20000,
+      "steps": 1580
+    },
+    "9": {
+      "epsilon_spent": 7.993584761689701,
+      "sigma": 0.7354736328125,
+      "sample_rate": 0.0128,
+      "n_accounts": 20000,
+      "steps": 1580
+    }
+  }
+}

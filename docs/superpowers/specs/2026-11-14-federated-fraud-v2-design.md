@@ -122,7 +122,7 @@ A7 is the multi-dataset decision.
 
 | Stage | Deliverable | Exit gate |
 |---|---|---|
-| **B1 Flower + SecAgg+** | Training runs as Flower ServerApp/ClientApp with the SecAgg+ protocol | Same weights as the plain loop on a fixed seed, to float tolerance |
+| **B1 Flower + SecAgg+** | Training runs as Flower ServerApp/ClientApp with the SecAgg+ protocol | Each round's SecAgg+ aggregate equals the plain weighted average of the same local models within the quantization bound n·2c/Q. **Done 2026-11-17: passed** — worst round 9.7e-6 against 7.73e-5 for FedProx and account DP ε=8; see `results/flower/B1_GATE.md` |
 | **B2 Kubernetes** | Server pod and bank pods on `kind`, each bank with its own volume, network policies, mutual TLS | A round completes with one bank pod killed mid-round. Needs Docker or Colima; 8 GB RAM may cap the pod count |
 | **B3 Encryption benchmark** | CKKS against the existing Paillier numbers, per round | Time and bytes per client per round, same model |
 | **B4 Inference** | Local inference latency, p50 and p99, plain and int8 | Measured numbers replace the 200 ms claim |

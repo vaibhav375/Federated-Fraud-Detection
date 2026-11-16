@@ -140,6 +140,22 @@ Same pooled test set; mean ± std over seeds 0–2 (one seed for `full_nodp`).
 3. **Caveat:** LI-Small and HI-Small come from the same simulator, the favourable case for public
    pretraining. One pretraining seed; the seed spread covers only DP noise and sampling.
 
+### Stage B1: Flower + SecAgg+
+
+The A0 FedProx loop also runs as a Flower ServerApp/ClientApp, and the server sees only the SecAgg+ sum
+of the banks' models. In each of the 10 rounds the secure aggregate matched the plain weighted average of
+the same local models to within 9.7e-6, below the quantization bound of 7.73e-5. Pooled test metrics stay
+close to A0 (FedProx PR-AUC 0.209 vs 0.203; account DP ε=8 0.0014 vs 0.0014), so secure aggregation
+does not change what the pipeline learns. Write-up:
+[B1_GATE.md](results/flower/B1_GATE.md). Reproduce with
+
+```bash
+python3 -W ignore experiments/run_flower.py --rounds 10 --debug-dump-locals --out results/flower/b1_fedprox.json --max-train-accounts 20000
+```
+
+Add `--account-dp-eps 8` for the DP run. `--debug-dump-locals` writes each bank's model to disk to check
+the aggregate, which defeats SecAgg+; leave it off outside this check.
+
 ## Real, measured results
 
 Four models, trained for real, evaluated on one identical held-out test set (6,000
