@@ -88,7 +88,7 @@ def test_local_fit_extraction_preserves_federated_results(tiny_csv, tmp_path):
     # Golden values recorded at 8835099, before local_fit existed; the A0 JSON must stay reproducible.
     r = runner.main(["--data-path", _build(tiny_csv, tmp_path), "--out", str(tmp_path / "r.json"),
                      "--models", "fedprox", "account_dp", "--epsilons", "8", "--rounds", "2",
-                     "--local-epochs", "1", "--batch-size", "32", "--delta", "1e-3"])["results"]
+                     "--local-epochs", "1", "--batch-size", "32", "--delta", "1e-3", "--seeded-dp"])["results"]
     fp, dp = r["fedprox"]["seeds"]["0"], r["account_dp_eps8.0"]["seeds"]["0"]
     assert fp["pooled"]["pr_auc"] == pytest.approx(0.06821378340365682, abs=1e-12)
     assert fp["pooled"]["roc_auc"] == pytest.approx(0.4551282051282051, abs=1e-12)

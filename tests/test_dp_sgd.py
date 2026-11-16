@@ -1,6 +1,8 @@
 import copy
 
 import torch
+
+from src.federated.dp_random import SeededDPRandom
 from opacus.accountants import RDPAccountant
 
 from helpers import small_model_for
@@ -121,7 +123,7 @@ def test_fraud_rows_first_always_includes_the_fraud_row():
 
     labels = torch.zeros(10, dtype=torch.long)
     labels[7] = 1
-    g = torch.Generator().manual_seed(0)
+    g = SeededDPRandom(torch.Generator().manual_seed(0))  # the A0/A4 seeded draws
     with_labels = sum(7 in _sample_rows(*_one_account(10), 1.0, 4, g, labels=labels)[1].tolist() for _ in range(200))
     without = sum(7 in _sample_rows(*_one_account(10), 1.0, 4, g)[1].tolist() for _ in range(200))
     assert with_labels == 200
@@ -132,7 +134,7 @@ def test_fraud_rows_first_caps_rows_per_account():
     from src.federated.dp_sgd import _sample_rows
 
     labels = torch.tensor([1, 1, 0, 1, 1, 0, 1, 1])
-    g = torch.Generator().manual_seed(0)
+    g = SeededDPRandom(torch.Generator().manual_seed(0))  # the A0/A4 seeded draws
     for _ in range(50):
         picked, rows, slot = _sample_rows(*_one_account(8), 1.0, 4, g, labels=labels)
         assert len(rows) == 4 and len(set(rows.tolist())) == 4
@@ -143,7 +145,7 @@ def test_default_sampling_unchanged():
     from src.federated.dp_sgd import _sample_rows
 
     inverse, order = torch.arange(30) // 10, torch.arange(30)
-    g = torch.Generator().manual_seed(0)
+    g = SeededDPRandom(torch.Generator().manual_seed(0))  # the A0/A4 seeded draws
     rows = _sample_rows(3, inverse, order, torch.tensor([0, 10, 20]), torch.tensor([10, 10, 10]), 1.0, 4, g)[1]
     assert rows.tolist() == GOLDEN_DEFAULT_ROWS
 

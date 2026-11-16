@@ -28,6 +28,7 @@ from run_training import (DEFAULT_CONFIG, DifferentialPrivacy, add_server_noise,
                           federated_aggregate, train_local)
 from src.data.sequences import load_indexed_client  # noqa: E402
 from src.federated.dp_accounting import DPFedAvgAccountant  # noqa: E402
+from src.federated.dp_random import make_dp_random  # noqa: E402
 from src.federated.dp_sgd import (AccountDPConfig, freeze_non_dp_heads,  # noqa: E402
                                   noise_multiplier_for, train_local_account_dp)
 from src.models.temporal_graph_transformer import TemporalGraphTransformer  # noqa: E402
@@ -243,7 +244,8 @@ def local_fit(model, client, args, global_params, generator, *, mu, account_dp=N
         cfg, d, accountant = account_dp
         train_local_account_dp(model, client["train"], opt, cfg, d["sigma"], d["sample_rate"],
                                d["steps_per_round"], accountant, global_params=global_params,
-                               mu=mu, pos_weight=args.pos_weight, generator=generator)
+                               mu=mu, pos_weight=args.pos_weight, generator=generator,
+                               dp_rng=make_dp_random(args, generator))
     else:
         train_local(model, BatchIter(client["train"], args.batch_size, args.oversample_ratio, generator),
                     opt, client_dp, None, "cpu", global_params=global_params, mu=mu,
@@ -300,7 +302,8 @@ def run_federated(args, clients, build_model, g, *, mu, client_dp_eps=None, acco
     if account_dp_eps is not None:
         privacy = {str(c): {"epsilon_spent": float(d["accountant"].get_epsilon(args.delta)),
                             "sigma": d["sigma"], "sample_rate": d["sample_rate"],
-                            "n_accounts": d["n_accounts"], "steps": args.rounds * d["steps_per_round"]}
+                            "n_accounts": d["n_accounts"], "steps": args.rounds * d["steps_per_round"],
+                            "dp_randomness": make_dp_random(args, g).name}
                    for c, d in dp_plan.items()}
     if client_acc is not None:
         privacy = client_acc.cumulative()
@@ -355,6 +358,8 @@ def parse_args(argv):
     p.add_argument("--dp-batch-accounts", type=int, default=256)
     p.add_argument("--dp-examples-per-account", type=int, default=4)
     p.add_argument("--max-train-accounts", type=int, default=None)
+    p.add_argument("--seeded-dp", action="store_true",
+                   help="seeded DP sampling and noise (tests only); default is os.urandom")
     return p.parse_args(argv)
 
 

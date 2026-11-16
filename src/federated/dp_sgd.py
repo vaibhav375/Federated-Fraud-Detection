@@ -15,6 +15,8 @@ import torch
 from opacus.accountants.utils import get_noise_multiplier
 from torch.func import functional_call, grad_and_value, vmap
 
+from src.federated.dp_random import SeededDPRandom
+
 NON_DP_HEADS = ("contrastive_head", "aux_head")
 
 
@@ -80,15 +82,15 @@ def _account_groups(dataset):
     return len(uniq), inverse, order, starts, counts
 
 
-def _sample_rows(n_acc, inverse, order, starts, counts, sample_rate, per_account, generator, labels=None):
-    picked = (torch.rand(n_acc, generator=generator) < sample_rate).nonzero(as_tuple=True)[0]
+def _sample_rows(n_acc, inverse, order, starts, counts, sample_rate, per_account, rng, labels=None):
+    picked = (rng.uniform(n_acc) < sample_rate).nonzero(as_tuple=True)[0]
     if len(picked) == 0:
         return picked, torch.empty(0, dtype=torch.long), torch.empty(0, dtype=torch.long)
     take = torch.clamp(counts[picked], max=per_account)
     slot = torch.repeat_interleave(torch.arange(len(picked)), take)
     if labels is None:
         # Random distinct offsets within each account: rank of a random key inside the group.
-        offsets = torch.cat([torch.randperm(int(c), generator=generator)[:int(t)]
+        offsets = torch.cat([rng.permutation(int(c))[:int(t)]
                              for c, t in zip(counts[picked].tolist(), take.tolist())])
         rows = order[starts[picked].repeat_interleave(take) + offsets]
         return picked, rows, slot
@@ -96,14 +98,16 @@ def _sample_rows(n_acc, inverse, order, starts, counts, sample_rate, per_account
     # rows and the account's whole contribution is clipped, so it costs no epsilon.
     chosen = []
     for s, c, t in zip(starts[picked].tolist(), counts[picked].tolist(), take.tolist()):
-        group = order[s:s + c][torch.randperm(c, generator=generator)]
+        group = order[s:s + c][rng.permutation(c)]
         chosen.append(group[torch.argsort(labels[group], descending=True, stable=True)[:t]])
     return picked, torch.cat(chosen), slot
 
 
 def train_local_account_dp(model, dataset, optimizer, cfg: AccountDPConfig, sigma: float,
                            sample_rate: float, steps: int, accountant, *, global_params=None,
-                           mu: float = 0.0, pos_weight: float = 1.0, generator=None) -> dict:
+                           mu: float = 0.0, pos_weight: float = 1.0, generator=None, dp_rng=None) -> dict:
+    if dp_rng is None:
+        dp_rng = SeededDPRandom(generator if generator is not None else torch.default_generator)
     model.train()
     trainable = [(n, p) for n, p in model.named_parameters() if p.requires_grad]
     n_acc, inverse, order, starts, counts = _account_groups(dataset)
@@ -113,7 +117,7 @@ def train_local_account_dp(model, dataset, optimizer, cfg: AccountDPConfig, sigm
     losses, picked_counts = [], []
     for _ in range(steps):
         picked, rows, slot = _sample_rows(n_acc, inverse, order, starts, counts, sample_rate,
-                                          cfg.examples_per_account, generator,
+                                          cfg.examples_per_account, dp_rng,
                                           labels=row_labels if cfg.fraud_rows_first else None)
         summed = {}
         if len(rows):
@@ -122,7 +126,7 @@ def train_local_account_dp(model, dataset, optimizer, cfg: AccountDPConfig, sigm
             summed = account_clipped_sum(grads, slot, len(picked), cfg.clip_norm)
             losses.append(loss.mean().item())
         for name, p in trainable:
-            noise = torch.normal(0.0, sigma * cfg.clip_norm, p.shape, generator=generator)
+            noise = dp_rng.gaussian(sigma * cfg.clip_norm, p.shape)
             p.grad = (summed.get(name, torch.zeros_like(p)) + noise) / denom
         optimizer.step()
         optimizer.zero_grad(set_to_none=True)
