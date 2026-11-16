@@ -110,8 +110,32 @@ One seed, at most 20,000 train accounts per client.
 Not counted in ε: threshold tuning, hyperparameter choice and best-round selection on validation data;
 per-bank counts and the pooled training laundering rate are treated as public.
 
-Next: Stage A4, public pretraining on IBM LI-Small and DP on the classifier head only
-([plan](docs/superpowers/plans/2026-11-15-stage-a4-public-pretraining-dp-head.md)).
+### Stage A4: public pretraining + DP on the head
+
+The full model is pretrained without DP on IBM LI-Small (public, same schema, no shared transactions with
+HI-Small), then the backbone is frozen and federated account-level DP-SGD trains only the classifier's last
+layer (33 parameters) on every HI-Small account. Full write-up:
+[STAGE_A4_GATE.md](results/comparison/STAGE_A4_GATE.md). Reproduce with
+`python3 experiments/build_ibm_aml.py` for LI-Small, `python3 experiments/pretrain_public.py --epochs 5`, then
+`python3 experiments/run_dp_finetune.py --ckpt checkpoints/pretrain_li_small.pt --epsilons 1 3 8 --seeds 0 1 2 --dp-train last_layer --lr 1e-3`.
+
+Same pooled test set; mean ± std over seeds 0–2 (one seed for `full_nodp`).
+
+| Model | PR-AUC | Recall @ 1% FPR | F1 | ε spent |
+|---|---|---|---|---|
+| zero_shot (pretrained, no private training) | 0.553 | 0.740 | 0.612 | none |
+| head_nodp (FedAvg on the head) | 0.563 ± 0.000 | 0.749 ± 0.001 | 0.615 | none |
+| full_nodp (FedAvg on the whole pretrained model) | 0.565 | 0.716 | 0.625 | none |
+| head_dp_eps1.0 | 0.557 ± 0.000 | 0.739 | 0.614 | max 1.00 (account-level) |
+| head_dp_eps3.0 | 0.558 ± 0.000 | 0.739 | 0.614 | max 3.00 (account-level) |
+| head_dp_eps8.0 | 0.558 ± 0.000 | 0.739 | 0.614 | max 8.00 (account-level) |
+
+1. **Account-level DP now works.** At ε=8 it keeps 98.8% of the best no-DP federated PR-AUC (0.565), against
+   under 1% in A0, and the curve is flat from ε=1 to ε=8.
+2. **The gain comes from the public data.** The pretrained model alone (0.553) beats A0's centralized model
+   (0.523) on 9 of 10 clients. Private training adds about 0.01 PR-AUC without DP and 0.006 with it.
+3. **Caveat:** LI-Small and HI-Small come from the same simulator, the favourable case for public
+   pretraining. One pretraining seed; the seed spread covers only DP noise and sampling.
 
 ## Real, measured results
 
