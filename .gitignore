@@ -27,6 +27,7 @@ results/*/*
 !results/comparison/ibm_hi_small*.json
 !results/pretrain/*.json
 !results/flower/b1*.json
+!results/hardening/*.json
 logs/
 checkpoints/
 ray_tmp/

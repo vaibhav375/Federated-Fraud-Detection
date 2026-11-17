@@ -1,0 +1,114 @@
+{
+  "config": {
+    "dataset": {
+      "num_features": 35
+    },
+    "model": {
+      "hidden_dim": 32,
+      "temporal": {
+        "num_heads": 4,
+        "num_layers": 2,
+        "dropout": 0.1
+      },
+      "graph": {
+        "num_layers": 2,
+        "dropout": 0.1
+      },
+      "classifier": {
+        "hidden_dim": 32,
+        "dropout": 0.2
+      },
+      "contrastive": {
+        "projection_dim": 32,
+        "temperature": 0.07,
+        "memory_bank_size": 1000
+      }
+    },
+    "training": {
+      "loss_weights": {
+        "bce": 1.0,
+        "contrastive": 0.0,
+        "auxiliary": 0.0
+      },
+      "pos_weight": 8.0,
+      "fraud_rate_prior": 0.0010068542324006557
+    }
+  },
+  "num_features": 35,
+  "val_pr_auc_by_epoch": [
+    0.3727475452282949,
+    0.42387576162646257,
+    0.4317139149166559,
+    0.4658287776912295,
+    0.46546090480672936
+  ],
+  "best_epoch": 4,
+  "test": {
+    "n": 1900971,
+    "n_fraud": 2143,
+    "pr_auc": 0.47094277630478254,
+    "roc_auc": 0.9818566686596701,
+    "recall_at_1pct_fpr": 0.8012132524498367,
+    "precision": 0.510148107515085,
+    "recall": 0.43397106859542695,
+    "f1": 0.4689863842662632,
+    "threshold": 0.9923670887947083,
+    "precision_at_1000": 0.678,
+    "recall_at_1000": 0.3163789080727952,
+    "precision_at_5000": 0.2732,
+    "recall_at_5000": 0.6374241717218853
+  },
+  "train_seconds": 12248.8,
+  "data": {
+    "train": {
+      "n": 5702911,
+      "fraud": 5742
+    },
+    "val": {
+      "n": 1900970,
+      "fraud": 1988
+    },
+    "test": {
+      "n": 1900971,
+      "fraud": 2143
+    }
+  },
+  "train_accounts": 203909,
+  "source": "/Users/vaibhav/capstone_data/saml_d",
+  "epochs": 5,
+  "seed": 0,
+  "args": {
+    "data_path": "/Users/vaibhav/capstone_data/saml_d",
+    "out": "/Volumes/Untitled/capstone_files/Federated-Fraud-Detection/results/comparison/ibm_hi_small.json",
+    "models": [
+      "local",
+      "centralized",
+      "gbdt",
+      "fedavg",
+      "fedprox",
+      "client_dp",
+      "account_dp"
+    ],
+    "epsilons": [
+      1.0,
+      3.0,
+      8.0
+    ],
+    "seeds": [
+      0
+    ],
+    "rounds": 10,
+    "local_epochs": 2,
+    "batch_size": 256,
+    "lr": 0.001,
+    "mu": 0.1,
+    "pos_weight": 8.0,
+    "oversample_ratio": 0.02,
+    "delta": 1e-06,
+    "clip_norm": 1.0,
+    "dp_batch_accounts": 256,
+    "dp_examples_per_account": 4,
+    "max_train_accounts": null,
+    "seeded_dp": false
+  }
+}
