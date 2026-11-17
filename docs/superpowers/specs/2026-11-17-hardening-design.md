@@ -115,6 +115,14 @@ and LI-Small with 10 clients by the existing bank grouping. Overlap with HI-Smal
 construction (different generators and account ID spaces); the write-up states this instead of running
 the row-hash check.
 
+**Amendment (2026-11-17, approved before any HI-Small run).** The LI-Small backbone tuned on SAML-D was at
+chance in all 96 grid runs (val PR-AUC 0.0010–0.0017 against a base rate of 0.00105, no DP included): its
+features do not transfer to SAML-D, so the picks were noise. That grid is kept as a result. The LI-Small
+backbone is instead tuned on IBM LI-Medium, which is public and which it never saw, cut to the rows of one
+third of sending accounts (`experiments/subsample_senders.py`, crc32 of bank|account mod 3) so it is about
+SAML-D's size and every kept account keeps its whole history. It is built with 10 clients by bank grouping.
+LI-Medium shares the generator family with HI-Small, so the row and account overlap check is run and reported.
+
 ### Fine-tuning settings (G4)
 
 - Tuning grid, at ε=1, 3, 8 and no DP, seed 0, on the tuning dataset's 10 pseudo-banks:
