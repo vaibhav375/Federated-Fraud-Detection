@@ -1,0 +1,58 @@
+{
+  "li_small": {
+    "nodp": {
+      "lr": 0.003,
+      "layers": "last_layer",
+      "rounds": 10,
+      "val_pr_auc": 0.18376606557017475
+    },
+    "1.0": {
+      "lr": 0.0003,
+      "layers": "classifier",
+      "rounds": 1,
+      "val_pr_auc": 0.18199535072566678
+    },
+    "3.0": {
+      "lr": 0.003,
+      "layers": "classifier",
+      "rounds": 10,
+      "val_pr_auc": 0.18276540788611592
+    },
+    "8.0": {
+      "lr": 0.003,
+      "layers": "classifier",
+      "rounds": 10,
+      "val_pr_auc": 0.1825787923850985
+    }
+  },
+  "saml_d": {
+    "nodp": {
+      "lr": 0.003,
+      "layers": "classifier",
+      "rounds": 10,
+      "val_pr_auc": 0.006006238311087952
+    },
+    "1.0": {
+      "lr": 0.0003,
+      "layers": "classifier",
+      "rounds": 2,
+      "val_pr_auc": 0.0021809362311598322
+    },
+    "3.0": {
+      "lr": 0.0003,
+      "layers": "classifier",
+      "rounds": 2,
+      "val_pr_auc": 0.0021882335027560867
+    },
+    "8.0": {
+      "lr": 0.0003,
+      "layers": "classifier",
+      "rounds": 2,
+      "val_pr_auc": 0.002176640384452178
+    }
+  },
+  "tuned_on": {
+    "li_small": "IBM LI-Medium, one third of senders (SAML-D tuning was at chance; see tune_li_small_on_saml_d.json)",
+    "saml_d": "IBM LI-Small"
+  }
+}
