@@ -132,13 +132,14 @@ Same pooled test set; mean ± std over seeds 0–2 (one seed for `full_nodp`).
 | head_dp_eps3.0 | 0.558 ± 0.000 | 0.739 | 0.614 | max 3.00 (account-level) |
 | head_dp_eps8.0 | 0.558 ± 0.000 | 0.739 | 0.614 | max 8.00 (account-level) |
 
-1. **With a public pretrained backbone, account-level DP is nearly free.** At ε=8 the model reaches 0.558,
+1. **With a public pretrained backbone from the same generator, account-level DP is nearly free.** At ε=8 the model reaches 0.558,
    98.8% of the best no-DP federated PR-AUC (0.565), against under 1% in A0; the curve is flat from ε=1 to
    ε=8. But the pretrained model alone already reaches 0.553, so DP training itself adds only +0.006.
 2. **The gain comes from the public data.** The pretrained model alone (0.553) beats A0's centralized model
    (0.523) on 9 of 10 clients. Private training adds about 0.01 PR-AUC without DP and 0.006 with it.
-3. **Caveat:** LI-Small and HI-Small come from the same simulator, the favourable case for public
-   pretraining. One pretraining seed; the seed spread covers only DP noise and sampling.
+3. **Caveat, tested in Stage H below:** LI-Small and HI-Small come from the same simulator. With public data
+   from a different generator (SAML-D, AMLSim) the frozen backbone does not transfer and head DP is at
+   chance. A4 also chose the best round on HI-Small validation (outside ε) and used seeded DP noise.
 
 ### Stage B1: Flower + SecAgg+
 
@@ -155,6 +156,51 @@ python3 -W ignore experiments/run_flower.py --rounds 10 --debug-dump-locals --ou
 
 Add `--account-dp-eps 8` for the DP run. `--debug-dump-locals` writes each bank's model to disk to check
 the aggregate, which defeats SecAgg+; leave it off outside this check.
+
+### Stage H: hardening
+
+Stage H re-runs A4 so that its claims survive review. Write-up:
+[HARDENING_GATE.md](results/hardening/HARDENING_GATE.md); design:
+[spec](docs/superpowers/specs/2026-11-17-hardening-design.md). Changes from A4:
+
+- Every fine-tuning setting is chosen on public data only (IBM LI-Medium, one third of senders, 10 bank
+  clients). HI-Small runs train for a fixed number of rounds and report the final model, so no choice
+  sits outside ε.
+- DP noise and sampling use the OS cryptographic source.
+- Error bars cover three pretraining seeds and three A0 seeds.
+- Pretraining is also tested on public data from other generators (SAML-D, AMLSim) and on 10% and 1% of
+  LI-Small.
+- Head DP runs through Flower with SecAgg+.
+
+| Backbone | zero_shot | head_nodp | head_dp ε=8 | Best no-DP | head_dp ε=8 F1 |
+|---|---|---|---|---|---|
+| LI-Small seed 0 | 0.553 | 0.551 | 0.550 ± 0.000 | 0.565 (A4 full_nodp) | 0.610 |
+| LI-Small, 3 pretraining seeds | 0.528 ± 0.018 | 0.532 ± 0.014 | 0.532 ± 0.013 | | 0.593 ± 0.015 |
+| LI-Small 10% | 0.137 | 0.138 | 0.163 | 0.474 (full_nodp) | 0.265 |
+| LI-Small 1% | 0.096 | 0.110 | 0.040 ± 0.023 | 0.359 (full_nodp) | 0.054 |
+| SAML-D | 0.002 | 0.008 | 0.004 | 0.493 (full_nodp) | 0.013 |
+| A0 centralized, no pretraining (3 seeds) | | | | 0.527 ± 0.005 | 0.583 ± 0.011 |
+
+1. **DP keeps 97% of the best no-DP PR-AUC on the same-generator backbone** (pre-registered bar 95%), and
+   beats centralized training without pretraining (0.550 vs 0.527). Averaged over pretraining seeds the
+   margin (0.532 vs 0.527) is within the noise.
+2. **The README's A4 claim narrows to same-generator public data.** SAML-D and AMLSim backbones fail the
+   pre-registered test: frozen, they score at chance on HI-Small. Fine-tuning the whole SAML-D model
+   without DP reaches 0.493, so the next lever is DP on more than the head.
+3. **On a strong backbone, private training adds nothing measurable.** With 10% of the public data, head
+   DP adds +0.027 while full fine-tuning without DP adds +0.34.
+4. **Flower + SecAgg+ with head DP matches in-process** (0.5494 vs 0.5495). Each round's aggregate error
+   is at most 3.6e-6, against a bound of 7.7e-5.
+5. **Tuned FedProx** (μ=0.001, chosen on validation) reaches 0.368, against 0.203 at A0's μ=0.1. FedAvg
+   over three seeds is 0.392 ± 0.044.
+6. **Alert budgets:** reviewing the top 1,000 scored test transactions, 85% are laundering and they
+   catch 47% of all laundering; at 5,000 alerts, 24% and 66%.
+7. **Client 0** is 89% one bank whose 15 hub accounts launder with the same payment types as their
+   legitimate traffic, and the model is at chance there. Receiver and graph features (A2) are the fix.
+8. **Against published HI-Small F1:** ours is 61.0 (59.3 ± 1.5 over pretraining seeds). Published
+   centralized models without privacy score 62.9–63.2 for boosting with graph features and up to 68.2
+   for Multi-PNA + EU. The comparison is rough: those models are centralized and use graph features, and
+   our threshold is tuned on validation.
 
 ## Real, measured results
 
