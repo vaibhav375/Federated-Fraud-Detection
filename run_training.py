@@ -274,13 +274,15 @@ class DifferentialPrivacy:
         return self.epsilon
 
 
-def add_server_noise(global_model, dp, max_client_weight):
+def add_server_noise(global_model, dp, max_client_weight, rng=None):
     """Add the server's one-time-per-round Gaussian noise to the aggregated
-    global model, in place. Called once per round, after federated_aggregate."""
+    global model, in place. Called once per round, after federated_aggregate.
+    rng: a DP random source (src.federated.dp_random); None draws from torch's global RNG."""
     sigma = dp.noise_scale(max_client_weight)
     with torch.no_grad():
         for p in global_model.parameters():
-            noise = torch.normal(mean=0.0, std=sigma, size=p.shape, device=p.device)
+            noise = (torch.normal(mean=0.0, std=sigma, size=p.shape, device=p.device) if rng is None
+                     else rng.gaussian(sigma, p.shape).to(p.device, p.dtype))
             p.add_(noise)
     return sigma
 

@@ -30,6 +30,7 @@ def test_all_models_run_and_share_one_test_set(tiny_csv, tmp_path):
     assert set(priv) == {"0", "1"}
     assert all(0 < v["epsilon_spent"] <= 8.0 for v in priv.values())
     assert out["results"]["client_dp_eps8.0"]["seeds"]["0"]["privacy"]["epsilon_rdp_total"] > 0
+    assert out["results"]["client_dp_eps8.0"]["seeds"]["0"]["privacy"]["dp_randomness"] == "secure"
     assert out["results"]["fedprox"]["seeds"]["0"]["privacy"] is None
     assert json.loads((tmp_path / "r.json").read_text())["results"].keys() == out["results"].keys()
 

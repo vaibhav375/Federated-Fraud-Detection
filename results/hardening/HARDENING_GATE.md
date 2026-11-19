@@ -1,7 +1,9 @@
 # Stage H gate: hardened results
 
 Date: 2026-11-19. Design: [hardening spec](../../docs/superpowers/specs/2026-11-17-hardening-design.md).
-Every number below comes from a JSON file in this directory (or `results/comparison/` for A0/A4).
+Every number below comes from a JSON file in this directory (or `results/comparison/` for A0/A4), except
+the client 0 payment-type and account counts, which were computed from the raw HI-Small CSV during the
+analysis and are not stored in `client0.json`.
 
 All test metrics are on the pooled IBM HI-Small test set: 1,015,882 transactions, 1,798 laundering
 (base rate 0.177%, so a random ranking scores PR-AUC ≈ 0.0018). F1 uses the threshold that maximises F1
@@ -44,6 +46,9 @@ the backbone, but it shares HI-Small's generator, so the overlap was checked
 | SAML-D (different generator) | 0.0041 ± 0.0000 | 0.4934 (full_nodp) | 0.8% | **fail** | | **fail** |
 | AMLSim sample (different generator) | 0.0026 | 0.0028 (head_nodp) | 92% | fail | | fail |
 
+Seeds 1–2 have no full_nodp run (the spec does not call for one), so their ratio is against head_nodp,
+an easier bar than seed 0's.
+
 The verdicts hold for the pre-registered backbone. Across three pretraining seeds, though, the "useful"
 margin over centralized training (0.532 ± 0.013 vs 0.527 ± 0.005) is inside the seed spread.
 
@@ -61,7 +66,7 @@ The AMLSim sample backbone fails the same way (zero-shot 0.0017, head_nodp 0.002
 at validation PR-AUC 0.0060 (`tune_saml_d_on_li_small.json`).
 
 Per the spec's narrowing rule (the first test fails on SAML-D), the README claim narrows to
-**same-generator public data**. With a frozen backbone and DP on the head only, this pipeline needs
+**same-generator public data**, and Q4 adds that it must be plentiful. With a frozen backbone and DP on the head only, this pipeline needs
 public data from the same generator as the private data.
 
 ## Q2. head_dp_eps8 under public-only tuning against A4's 0.558
@@ -75,8 +80,8 @@ public data from the same generator as the private data.
 | head_dp ε=8 | 0.5584 | 0.5497 ± 0.0003 |
 
 Moving model selection inside the privacy budget costs 0.009 at ε=8. The Stage H DP models sit at
-or just below the pretrained model (zero_shot 0.5528). For the ε=8 run, A4-style validation selection
-would have picked round 0, which is the pretrained model. On this backbone, private training adds
+or just below the pretrained model (zero_shot 0.5528). For the ε=8 runs, A4-style validation selection
+would have picked round 0, the pretrained model, for 2 of 3 fine-tuning seeds (round 10 for the third). On this backbone, private training adds
 nothing measurable. The DP result amounts to "DP costs nothing on top of a good public model".
 
 ## Q3. Spread across pretraining seeds (LI-Small backbone)
@@ -169,7 +174,7 @@ When a bank can review only the top-k scored transactions (pooled test, 1,798 la
 | centralized (A0, seeds 1–2) | 0.815 / 0.796 | 0.453 / 0.443 | 0.231 / 0.237 | 0.642 / 0.660 |
 | gbdt (A0, seeds 1–2) | 0.783 / 0.733 | 0.435 / 0.408 | 0.227 / 0.224 | 0.631 / 0.624 |
 | fedavg (A0, seeds 1–2) | 0.727 / 0.626 | 0.404 / 0.348 | 0.208 / 0.194 | 0.577 / 0.540 |
-| head_dp_eps8, LI-Small 10% | 0.379 | 0.212 | 0.128 | 0.355 |
+| head_dp_eps8, LI-Small 10% | 0.379 | 0.211 | 0.128 | 0.355 |
 
 At 1,000 alerts (0.1% of the test set) the private model's alerts are about 85% laundering and catch
 about 47% of all laundering. At 5,000 alerts, recall rises to about 66% and precision falls to about 24%.
@@ -267,11 +272,13 @@ at ε=8, 2.998 at ε=3, 0.999 at ε=1), δ = 1e-6.
 ## What the README now claims
 
 1. Federated account-level DP at ε=8 keeps 97% of the best no-DP PR-AUC when the backbone is pretrained
-   on public data **from the same generator**. With different-generator public data (SAML-D, AMLSim) the
+   on **plentiful public data from the same generator** (full LI-Small). With 10% or 1% of it, the test
+   fails (34%, 11%). With different-generator public data (SAML-D, AMLSim) the
    frozen backbone does not transfer and head DP is at chance.
 2. On a strong backbone the gain comes from the public data. Private training, with or without DP, adds
    nothing measurable.
 3. The DP model matches or beats centralized training without pretraining on the pre-registered backbone
    (0.550 vs 0.527). Averaged over pretraining seeds the margin (0.532 vs 0.527) is within the noise.
 4. The same holds through Flower with SecAgg+ (0.5494 vs 0.5495), with secure DP noise and model
-   selection inside the privacy budget.
+   selection inside the privacy budget. The F1 threshold is still chosen on HI-Small validation; PR-AUC
+   does not depend on it.

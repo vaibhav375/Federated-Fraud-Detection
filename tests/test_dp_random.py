@@ -55,3 +55,18 @@ def test_account_dp_run_records_randomness(tiny3):
         _, privacy = runner.run_federated(args, clients, build, torch.Generator().manual_seed(0),
                                           mu=0.0, account_dp_eps=8.0)
         assert {p["dp_randomness"] for p in privacy.values()} == {expected}
+
+
+def test_server_noise_draws_from_the_given_dp_rng():
+    from run_training import DifferentialPrivacy, add_server_noise
+
+    class Ones:
+        def gaussian(self, std, shape):
+            return torch.ones(tuple(shape))
+
+    model = torch.nn.Linear(3, 2)
+    before = [p.detach().clone() for p in model.parameters()]
+    state = torch.get_rng_state()
+    add_server_noise(model, DifferentialPrivacy(max_norm=1.0, epsilon=8.0, delta=1e-5), 0.5, rng=Ones())
+    assert torch.equal(torch.get_rng_state(), state)  # the seeded global RNG is not touched
+    assert all(torch.equal(p, b + 1) for p, b in zip(model.parameters(), before))

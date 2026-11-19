@@ -132,7 +132,7 @@ Same pooled test set; mean ± std over seeds 0–2 (one seed for `full_nodp`).
 | head_dp_eps3.0 | 0.558 ± 0.000 | 0.739 | 0.614 | max 3.00 (account-level) |
 | head_dp_eps8.0 | 0.558 ± 0.000 | 0.739 | 0.614 | max 8.00 (account-level) |
 
-1. **With a public pretrained backbone from the same generator, account-level DP is nearly free.** At ε=8 the model reaches 0.558,
+1. **With a strong public pretrained backbone from the same generator, account-level DP is nearly free.** At ε=8 the model reaches 0.558,
    98.8% of the best no-DP federated PR-AUC (0.565), against under 1% in A0; the curve is flat from ε=1 to
    ε=8. But the pretrained model alone already reaches 0.553, so DP training itself adds only +0.006.
 2. **The gain comes from the public data.** The pretrained model alone (0.553) beats A0's centralized model
@@ -164,8 +164,9 @@ Stage H re-runs A4 so that its claims survive review. Write-up:
 [spec](docs/superpowers/specs/2026-11-17-hardening-design.md). Changes from A4:
 
 - Every fine-tuning setting is chosen on public data only (IBM LI-Medium, one third of senders, 10 bank
-  clients). HI-Small runs train for a fixed number of rounds and report the final model, so no choice
-  sits outside ε.
+  clients). HI-Small runs train for a fixed number of rounds and report the final model, so no
+  model-selection choice sits outside ε. The F1 threshold is still chosen on HI-Small validation; PR-AUC
+  does not use it.
 - DP noise and sampling use the OS cryptographic source.
 - Error bars cover three pretraining seeds and three A0 seeds.
 - Pretraining is also tested on public data from other generators (SAML-D, AMLSim) and on 10% and 1% of
@@ -181,10 +182,11 @@ Stage H re-runs A4 so that its claims survive review. Write-up:
 | SAML-D | 0.002 | 0.008 | 0.004 | 0.493 (full_nodp) | 0.013 |
 | A0 centralized, no pretraining (3 seeds) | | | | 0.527 ± 0.005 | 0.583 ± 0.011 |
 
-1. **DP keeps 97% of the best no-DP PR-AUC on the same-generator backbone** (pre-registered bar 95%), and
+1. **DP keeps 97% of the best no-DP PR-AUC on the full same-generator backbone** (pre-registered bar 95%), and
    beats centralized training without pretraining (0.550 vs 0.527). Averaged over pretraining seeds the
    margin (0.532 vs 0.527) is within the noise.
-2. **The README's A4 claim narrows to same-generator public data.** SAML-D and AMLSim backbones fail the
+2. **The README's A4 claim narrows to plentiful same-generator public data.** The 10% and 1% LI-Small
+   backbones fail the 95% test (34% and 11%), and the SAML-D and AMLSim backbones fail the
    pre-registered test: frozen, they score at chance on HI-Small. Fine-tuning the whole SAML-D model
    without DP reaches 0.493, so the next lever is DP on more than the head.
 3. **On a strong backbone, private training adds nothing measurable.** With 10% of the public data, head

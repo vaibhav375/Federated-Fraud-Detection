@@ -303,7 +303,9 @@ def run_federated(args, clients, build_model, g, *, mu, client_dp_eps=None, acco
         candidate = aggregate(global_model, locals_, [sizes[c] for c in clients], build_model)
         if dp is not None:
             w = max(sizes.values()) / sum(sizes.values())
-            sigma = add_server_noise(candidate, dp, w)
+            rng = make_dp_random(args, g)
+            # seeded mode keeps A0's draws from torch's global RNG, so A0's client_dp rows stay reproducible
+            sigma = add_server_noise(candidate, dp, w, rng=None if rng.name == "seeded" else rng)
             client_acc.add_round(sigma, w * args.clip_norm, client_dp_eps)
         if not is_finite(candidate):
             candidate.load_state_dict(prev)  # one bad round must not poison the rest
@@ -317,7 +319,7 @@ def run_federated(args, clients, build_model, g, *, mu, client_dp_eps=None, acco
                             "dp_randomness": make_dp_random(args, g).name}
                    for c, d in dp_plan.items()}
     if client_acc is not None:
-        privacy = client_acc.cumulative()
+        privacy = {**client_acc.cumulative(), "dp_randomness": make_dp_random(args, g).name}
     best = max(range(len(states)), key=lambda i: states[i][0])  # same first-maximum rule as select_and_test
     best_round = best + (0 if include_initial else 1)
     if select == "val":
