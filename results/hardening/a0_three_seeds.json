@@ -1,0 +1,280 @@
+{
+  "dataset": "/Volumes/Untitled/datasets_capstone/ibm_aml/hi_small/HI-Small_Trans.csv",
+  "args_seeds12": {
+    "data_path": "/Volumes/Untitled/capstone_files/Federated-Fraud-Detection/data/ibm_hi_small",
+    "out": "/Users/vaibhav/capstone_runs/hardening/a0_seeds12.json",
+    "models": [
+      "centralized",
+      "gbdt",
+      "fedavg"
+    ],
+    "epsilons": [
+      1.0,
+      3.0,
+      8.0
+    ],
+    "seeds": [
+      1,
+      2
+    ],
+    "rounds": 10,
+    "local_epochs": 2,
+    "batch_size": 256,
+    "lr": 0.001,
+    "mu": 0.1,
+    "pos_weight": 8.0,
+    "oversample_ratio": 0.02,
+    "delta": 1e-06,
+    "clip_norm": 1.0,
+    "dp_batch_accounts": 256,
+    "dp_examples_per_account": 4,
+    "max_train_accounts": 20000,
+    "seeded_dp": false
+  },
+  "note": "seed 0 from results/comparison/ibm_hi_small.json (A0 run, before alert-budget metrics existed); seeds 1-2 from Stage H batch 4. mean/std (population std) over metrics present in all three seeds.",
+  "results": {
+    "centralized": {
+      "seed_source": {
+        "0": "results/comparison/ibm_hi_small.json",
+        "1": "Stage H batch 4",
+        "2": "Stage H batch 4"
+      },
+      "seeds": {
+        "0": {
+          "pooled": {
+            "n": 1015882,
+            "n_fraud": 1798,
+            "pr_auc": 0.5233158115795749,
+            "roc_auc": 0.97419185537936,
+            "recall_at_1pct_fpr": 0.699666295884316,
+            "precision": 0.7607361963190185,
+            "recall": 0.4827586206896552,
+            "f1": 0.5906771010547806,
+            "threshold": 0.9906010627746582
+          },
+          "train_seconds": 8165.2
+        },
+        "1": {
+          "pooled": {
+            "n": 1015882,
+            "n_fraud": 1798,
+            "pr_auc": 0.5345487602347182,
+            "roc_auc": 0.9702410746490258,
+            "recall_at_1pct_fpr": 0.6941045606229144,
+            "precision": 0.6812227074235808,
+            "recall": 0.5205784204671857,
+            "f1": 0.5901639344262295,
+            "threshold": 0.9973219037055969,
+            "precision_at_1000": 0.815,
+            "recall_at_1000": 0.4532814238042269,
+            "precision_at_5000": 0.231,
+            "recall_at_5000": 0.6423804226918799
+          },
+          "train_seconds": 7628.6
+        },
+        "2": {
+          "pooled": {
+            "n": 1015882,
+            "n_fraud": 1798,
+            "pr_auc": 0.5231415379087586,
+            "roc_auc": 0.9730511230661623,
+            "recall_at_1pct_fpr": 0.7252502780867631,
+            "precision": 0.6318306010928961,
+            "recall": 0.514460511679644,
+            "f1": 0.5671367259350092,
+            "threshold": 0.9814051985740662,
+            "precision_at_1000": 0.796,
+            "recall_at_1000": 0.44271412680756395,
+            "precision_at_5000": 0.2374,
+            "recall_at_5000": 0.6601779755283649
+          },
+          "train_seconds": 7586.1
+        }
+      },
+      "mean": {
+        "f1": 0.5826592538053398,
+        "n": 1015882.0,
+        "n_fraud": 1798.0,
+        "pr_auc": 0.5270020365743506,
+        "precision": 0.6912631682784984,
+        "recall": 0.5059325176121616,
+        "recall_at_1pct_fpr": 0.7063403781979979,
+        "roc_auc": 0.9724946843648494,
+        "threshold": 0.9897760550181071
+      },
+      "std": {
+        "f1": 0.010978083882932584,
+        "n": 0.0,
+        "n_fraud": 0.0,
+        "pr_auc": 0.005336813739336082,
+        "precision": 0.0531022363671222,
+        "recall": 0.016575671447724934,
+        "recall_at_1pct_fpr": 0.013562729816960993,
+        "roc_auc": 0.0016601978026798017,
+        "threshold": 0.006524101670462713
+      }
+    },
+    "gbdt": {
+      "seed_source": {
+        "0": "results/comparison/ibm_hi_small.json",
+        "1": "Stage H batch 4",
+        "2": "Stage H batch 4"
+      },
+      "seeds": {
+        "0": {
+          "pooled": {
+            "n": 1015882,
+            "n_fraud": 1798,
+            "pr_auc": 0.5245797874295717,
+            "roc_auc": 0.9763163415137511,
+            "recall_at_1pct_fpr": 0.7113459399332592,
+            "precision": 0.7442084942084942,
+            "recall": 0.42880978865406005,
+            "f1": 0.544107268877911,
+            "threshold": 0.9773418227230739
+          },
+          "train_seconds": 80.0
+        },
+        "1": {
+          "pooled": {
+            "n": 1015882,
+            "n_fraud": 1798,
+            "pr_auc": 0.5287292212359976,
+            "roc_auc": 0.9768342379497787,
+            "recall_at_1pct_fpr": 0.7068965517241379,
+            "precision": 0.737410071942446,
+            "recall": 0.4560622914349277,
+            "f1": 0.563573883161512,
+            "threshold": 0.9751210077404661,
+            "precision_at_1000": 0.783,
+            "recall_at_1000": 0.43548387096774194,
+            "precision_at_5000": 0.2268,
+            "recall_at_5000": 0.6307007786429366
+          },
+          "train_seconds": 95.6
+        },
+        "2": {
+          "pooled": {
+            "n": 1015882,
+            "n_fraud": 1798,
+            "pr_auc": 0.5029521827663413,
+            "roc_auc": 0.9749781217045472,
+            "recall_at_1pct_fpr": 0.699666295884316,
+            "precision": 0.6918967052537845,
+            "recall": 0.432146829810901,
+            "f1": 0.5320095857583019,
+            "threshold": 0.9756591951714025,
+            "precision_at_1000": 0.733,
+            "recall_at_1000": 0.40767519466073415,
+            "precision_at_5000": 0.2244,
+            "recall_at_5000": 0.6240266963292548
+          },
+          "train_seconds": 83.6
+        }
+      },
+      "mean": {
+        "f1": 0.5465635792659084,
+        "n": 1015882.0,
+        "n_fraud": 1798.0,
+        "pr_auc": 0.5187537304773034,
+        "precision": 0.7245050904682415,
+        "recall": 0.43900630329996293,
+        "recall_at_1pct_fpr": 0.7059695958472377,
+        "roc_auc": 0.9760429003893591,
+        "threshold": 0.9760406752116474
+      },
+      "std": {
+        "f1": 0.013002597514374103,
+        "n": 0.0,
+        "n_fraud": 0.0,
+        "pr_auc": 0.01130106581330094,
+        "precision": 0.023224049690607228,
+        "recall": 0.012137105897910953,
+        "recall_at_1pct_fpr": 0.004813034848256273,
+        "roc_auc": 0.00078203555560034,
+        "threshold": 0.0009459210899339837
+      }
+    },
+    "fedavg": {
+      "seed_source": {
+        "0": "results/comparison/ibm_hi_small.json",
+        "1": "Stage H batch 4",
+        "2": "Stage H batch 4"
+      },
+      "seeds": {
+        "0": {
+          "pooled": {
+            "n": 1015882,
+            "n_fraud": 1798,
+            "pr_auc": 0.33591472119415483,
+            "roc_auc": 0.956679550680957,
+            "recall_at_1pct_fpr": 0.5439377085650723,
+            "precision": 0.47622759158222916,
+            "recall": 0.3398220244716352,
+            "f1": 0.39662447257383965,
+            "threshold": 0.988836407661438
+          },
+          "train_seconds": 6899.9
+        },
+        "1": {
+          "pooled": {
+            "n": 1015882,
+            "n_fraud": 1798,
+            "pr_auc": 0.4430122838156332,
+            "roc_auc": 0.9646138361839109,
+            "recall_at_1pct_fpr": 0.646273637374861,
+            "precision": 0.6,
+            "recall": 0.4855394883203559,
+            "f1": 0.5367353212419306,
+            "threshold": 0.9668152332305908,
+            "precision_at_1000": 0.727,
+            "recall_at_1000": 0.40433815350389324,
+            "precision_at_5000": 0.2076,
+            "recall_at_5000": 0.5773081201334817
+          },
+          "train_seconds": 6816.7
+        },
+        "2": {
+          "pooled": {
+            "n": 1015882,
+            "n_fraud": 1798,
+            "pr_auc": 0.3972168351953532,
+            "roc_auc": 0.9672788869811195,
+            "recall_at_1pct_fpr": 0.6496106785317018,
+            "precision": 0.45634161886551944,
+            "recall": 0.3982202447163515,
+            "f1": 0.4253044253044253,
+            "threshold": 0.9613446593284607,
+            "precision_at_1000": 0.626,
+            "recall_at_1000": 0.3481646273637375,
+            "precision_at_5000": 0.1942,
+            "recall_at_5000": 0.5400444938820912
+          },
+          "train_seconds": 6844.6
+        }
+      },
+      "mean": {
+        "f1": 0.45288807304006523,
+        "n": 1015882.0,
+        "n_fraud": 1798.0,
+        "pr_auc": 0.39204794673504706,
+        "precision": 0.5108564034825829,
+        "recall": 0.4078605858361142,
+        "recall_at_1pct_fpr": 0.6132740081572118,
+        "roc_auc": 0.9628574246153292,
+        "threshold": 0.9723321000734965
+      },
+      "std": {
+        "f1": 0.060434017437345514,
+        "n": 0.0,
+        "n_fraud": 0.0,
+        "pr_auc": 0.0438748981826107,
+        "precision": 0.0635546933895915,
+        "recall": 0.05987819274886226,
+        "recall_at_1pct_fpr": 0.04904709160095562,
+        "roc_auc": 0.004501867664253114,
+        "threshold": 0.01188208515434627
+      }
+    }
+  }
+}
